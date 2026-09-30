@@ -4,11 +4,13 @@ export const MAX_ACTIVE_TARGETS = 5
 export const GRAVITY_PX_PER_S2 = 1050
 export const MAX_PHYSICS_DT_S = 0.05
 export const HIT_EFFECT_MS = 320
+export const GOLDEN_HIT_EFFECT_MS = 480
 export const NORMAL_SLASH_HIT_RADIUS = 24
 export const FAST_SLASH_HIT_RADIUS = 40
 export const PREDICTED_SLASH_HIT_RADIUS = 50
 
-export const GOLDEN_TARGET_CHANCE = 0.1
+export const GOLDEN_TARGET_CHANCE = 0.04
+export const GOLDEN_ELIGIBLE_AFTER_MS = 9000
 const MAX_TARGET_AGE_MS = 5000
 
 // These CSS-pixel margins affect collision only. Rendering uses the segment's
@@ -32,28 +34,36 @@ export function createTargetSystem(random = Math.random) {
 
   function spawn(width, height, now, options = {}) {
     const { predictable = false, speedScale = 1, activeLimit = MAX_ACTIVE_TARGETS, lanePosition = null,
-      kind = null } = options
+      kind = null, elapsedMs = 0 } = options
     if (width <= 0 || height <= 0 || activeCount() >= Math.min(MAX_ACTIVE_TARGETS, activeLimit)) return null
 
     const id = nextId++
     const radius = Math.max(38, Math.min(60, Math.min(width, height) * 0.08))
     const x = predictable
       ? width / 2
-      : width * (lanePosition === null ? 0.18 + random() * 0.64 : 0.2 + lanePosition * 0.6)
+      : width * (lanePosition === null ? 0.14 + random() * 0.72 : 0.17 + lanePosition * 0.66)
+    const gravity = GRAVITY_PX_PER_S2 * Math.max(1, speedScale ** 2)
+    const drift = predictable ? 0 : ((random() - 0.5) * 190 + (0.5 - x / width) * 65) * speedScale
     const target = {
       id,
       x,
       y: height + radius,
-      vx: predictable ? 0 : ((random() - 0.5) * 160 + (0.5 - x / width) * 50) * speedScale,
-      // Set launch speed from the desired apex height under constant gravity.
-      vy: -Math.sqrt(2 * GRAVITY_PX_PER_S2 * height * (predictable ? 0.68 : 0.58 + random() * 0.17)) * speedScale,
+      vx: predictable ? 0 : Math.max(-width * 0.26, Math.min(width * 0.26, drift)),
+      // Faster late targets rise/fall faster, while gravity keeps their apex in view.
+      vy: -Math.sqrt(2 * gravity * height * (predictable ? 0.68 : 0.53 + random() * 0.23))
+        * Math.min(1, speedScale),
+      gravity,
+      rotation: predictable ? 0 : (random() - 0.5) * 0.24,
+      angularVelocity: predictable ? 0 : (random() - 0.5) * 0.5,
       radius,
       sliced: false,
       slicedAt: null,
       createdAt: now,
-      kind: kind === 'golden' || (!kind && !predictable && random() < GOLDEN_TARGET_CHANCE)
+      kind: kind === 'golden' || (!kind && !predictable && elapsedMs >= GOLDEN_ELIGIBLE_AFTER_MS
+        && random() < GOLDEN_TARGET_CHANCE)
         ? 'golden' : 'normal',
     }
+    target.effectSeed = target.kind === 'golden' ? random() : 0
     state.targets.push(target)
     return target
   }
@@ -64,13 +74,14 @@ export function createTargetSystem(random = Math.random) {
       if (target.sliced) continue
       target.x += target.vx * dt
       target.y += target.vy * dt
-      target.vy += GRAVITY_PX_PER_S2 * dt
+      target.vy += target.gravity * dt
+      target.rotation += target.angularVelocity * dt
     }
 
     let write = 0
     for (const target of state.targets) {
       const visible = target.sliced
-        ? now - target.slicedAt < HIT_EFFECT_MS
+        ? now - target.slicedAt < (target.kind === 'golden' ? GOLDEN_HIT_EFFECT_MS : HIT_EFFECT_MS)
         : now - target.createdAt <= MAX_TARGET_AGE_MS
           && target.x >= -target.radius && target.x <= width + target.radius
           && !(target.vy > 0 && target.y > height + target.radius)

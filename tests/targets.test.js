@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   createTargetSystem, collisionProfileForSegment, MAX_ACTIVE_TARGETS,
   NORMAL_SLASH_HIT_RADIUS, FAST_SLASH_HIT_RADIUS, PREDICTED_SLASH_HIT_RADIUS,
-  GOLDEN_TARGET_CHANCE,
+  GOLDEN_TARGET_CHANCE, GOLDEN_ELIGIBLE_AFTER_MS,
 } from '../src/targets.js'
 import { createSlashTracker } from '../src/slash.js'
 
@@ -131,7 +131,7 @@ test('normal and golden targets share collision behavior; golden is a visual var
   assert.equal(normal.kind, 'normal')
   assert.equal(golden.kind, 'golden')
   assert.equal(normal.radius, golden.radius)
-  assert.equal(GOLDEN_TARGET_CHANCE, 0.1)
+  assert.equal(GOLDEN_TARGET_CHANCE, 0.04)
   golden.x = 250
   golden.y = 200
   normal.x = 100
@@ -140,6 +140,25 @@ test('normal and golden targets share collision behavior; golden is a visual var
   assert.deepEqual(targets.hitWithSegment(segment, 10), [golden])
   assert.deepEqual(targets.hitWithSegment(segment, 20), [])
   assert.equal(targets.state.hits, 1)
+})
+
+test('automatic gold is excluded for nine seconds and then remains an unguaranteed 4% roll', () => {
+  assert.equal(GOLDEN_ELIGIBLE_AFTER_MS, 9000)
+  const lucky = createTargetSystem(() => 0)
+  assert.equal(lucky.spawn(500, 400, 0, { elapsedMs: 8999 }).kind, 'normal')
+  assert.equal(lucky.spawn(500, 400, 1, { elapsedMs: 9000 }).kind, 'golden')
+  const unlucky = createTargetSystem(() => 0.5)
+  assert.equal(unlucky.spawn(500, 400, 1, { elapsedMs: 9000 }).kind, 'normal')
+})
+
+test('slightly varied rotation and drift do not alter the active target cap', () => {
+  const targets = createTargetSystem(() => 0.8)
+  for (let index = 0; index < MAX_ACTIVE_TARGETS + 3; index += 1) {
+    targets.spawn(500, 400, index, { elapsedMs: 60000 })
+  }
+  assert.equal(targets.activeCount(), MAX_ACTIVE_TARGETS)
+  assert.ok(targets.state.targets.every((target) => Math.abs(target.rotation) <= 0.12))
+  assert.ok(targets.state.targets.every((target) => Math.abs(target.vx) <= 500 * 0.26))
 })
 
 test('a strictly approved predicted segment can hit a target', () => {

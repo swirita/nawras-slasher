@@ -18,9 +18,18 @@ test('difficulty rises continuously across the round', () => {
   assert.ok(middle.pairProbability > 0 && late.pairProbability > middle.pairProbability)
   assert.equal(early.activeLimit, 1)
   assert.equal(late.activeLimit, 5)
-  assert.equal(late.pairProbability, 0.56)
-  assert.equal(late.tripleProbability, 0.1)
+  assert.equal(late.pairProbability, 0.74)
+  assert.equal(late.tripleProbability, 0.11)
   assert.equal(difficultyAt(45000).progress, 0.5)
+  assert.deepEqual([0, 10, 20, 30, 45, 60, 75, 90].map((second) =>
+    difficultyAt(second * 1000).spawnIntervalMs), [3400, 3050, 2650, 2300, 1950, 1650, 1350, 1120])
+  assert.deepEqual([0, 10, 20, 30, 45, 60, 75, 90].map((second) =>
+    difficultyAt(second * 1000).launchSpeedScale), [0.82, 0.88, 0.96, 1.08, 1.20, 1.31, 1.38, 1.45])
+  assert.equal(difficultyAt(15000).spawnIntervalMs, 2850)
+  assert.equal(difficultyAt(15000).pairProbability, 0.11)
+  assert.ok(difficultyAt(30000).spawnIntervalMs < 2950)
+  assert.ok(difficultyAt(30000).launchSpeedScale > 0.99)
+  assert.ok(FINAL_SPAWN_INTERVAL_MS >= 1000 && FINAL_SPAWN_INTERVAL_MS <= 1250)
 })
 
 test('clock starts explicitly, ends at 90 seconds, and reset restores 01:30', () => {

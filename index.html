@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#eaf4fb" />
-    <meta name="description" content="Nawras Slasher webcam game prototype" />
+    <meta name="description" content="Nawras Slasher — a webcam arcade game" />
     <title>Nawras Slasher</title>
   </head>
   <body>
@@ -14,20 +14,17 @@
         <div class="camera-tint" aria-hidden="true"></div>
         <div class="camera-grid" aria-hidden="true"></div>
         <canvas id="tracking-canvas" aria-label="Game targets and fingertip cursor"></canvas>
+        <div class="finale-atmosphere" aria-hidden="true"></div>
         <div id="ready-brand" class="ready-brand">
+          <div class="ready-halo" aria-hidden="true"></div>
           <img id="ready-wordmark" alt="NawrasEdu" hidden />
-          <p>Nawras Slasher</p>
-          <span>Slash the NS logos with your finger.</span>
-          <span class="ready-gold">Golden targets are worth more!</span>
-          <small>Turn on the camera, then press Start.</small>
+          <h1 class="ready-title"><span>NAWRAS</span><span>SLASHER</span></h1>
+          <p class="ready-instruction">SLASH WITH YOUR FINGER</p>
         </div>
       </div>
 
       <header class="hud">
-        <div class="hud-brand">
-          <span class="hud-kicker">Interactive prototype</span>
-          <h1>Nawras Slasher</h1>
-        </div>
+        <div class="hud-brand" aria-hidden="true">NAWRAS SLASHER</div>
         <div class="hud-stats">
           <div class="hud-stat"><span>Score</span><strong id="score">0</strong></div>
           <div id="timer-stat" class="hud-stat"><span>Time</span><strong id="timer">01:30</strong></div>
@@ -67,23 +64,25 @@
       <div id="combo-indicator" class="combo-indicator" hidden></div>
       <div id="state-callout" class="state-callout" hidden></div>
       <div id="round-message" class="round-message" hidden>
+        <div class="result-glow" aria-hidden="true"></div>
         <img id="result-wordmark" alt="NawrasEdu" hidden />
-        <strong>TIME'S UP!</strong>
+        <h2>TIME'S UP!</h2>
+        <strong id="final-score" class="result-score">0</strong>
+        <span class="result-score-label">FINAL SCORE</span>
         <div class="result-stats">
-          <div><span>FINAL SCORE</span><b id="final-score">0</b></div>
-          <div><span>TARGETS SLICED</span><b id="final-sliced">0</b></div>
-          <div><span>BEST COMBO</span><b id="final-combo">x1</b></div>
-          <div><span>HIGH SCORE</span><b id="high-score">0</b></div>
+          <div><b id="final-sliced">0</b><span>SLICED</span></div>
+          <div><b id="final-combo">x1</b><span>BEST COMBO</span></div>
         </div>
-        <p id="new-high-score" class="new-high-score" hidden>NEW HIGH SCORE!</p>
+        <p id="new-high-score" class="new-high-score" hidden>✦ NEW HIGH SCORE ✦</p>
         <button id="play-again" type="button">PLAY AGAIN</button>
       </div>
 
       <footer class="controls">
-        <button id="start-camera" type="button">Camera On</button>
-        <button id="stop-camera" type="button" hidden>Camera Off</button>
-        <button id="start-round" class="primary-button" type="button" disabled>START</button>
+        <button id="start-camera" class="primary-button" type="button">ENABLE CAMERA</button>
+        <button id="stop-camera" type="button" hidden>CAMERA OFF</button>
+        <button id="start-round" class="primary-button" type="button" disabled>START GAME</button>
         <button id="reset-round" type="button" disabled>RESET</button>
+        <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true">SOUND ON</button>
       </footer>
     </main>
     <script type="module" src="/src/main.js"></script>

@@ -95,6 +95,26 @@ test('FINAL 15 emits once, FINISHED occurs at zero, and scoring stops', () => {
   assert.equal(game.drainEvents().filter((event) => event.type === 'round-finished').length, 1)
 })
 
+test('final-ten timer ticks begin at ten, count down once each, and time up fires once', () => {
+  const game = createGameSession()
+  const now = startPlaying(game)
+  game.update(now + 79999)
+  assert.equal(game.drainEvents().filter((event) => event.type === 'final-ten-tick').length, 0)
+  const seconds = []
+  for (let second = 10; second >= 1; second -= 1) {
+    game.update(now + GAME_DURATION_MS - second * 1000)
+    seconds.push(...game.drainEvents().filter((event) => event.type === 'final-ten-tick')
+      .map((event) => event.second))
+    game.update(now + GAME_DURATION_MS - second * 1000 + 100)
+    assert.equal(game.drainEvents().filter((event) => event.type === 'final-ten-tick').length, 0)
+  }
+  assert.deepEqual(seconds, [10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+  game.update(now + GAME_DURATION_MS)
+  assert.equal(game.drainEvents().filter((event) => event.type === 'round-finished').length, 1)
+  game.update(now + GAME_DURATION_MS + 1000)
+  assert.equal(game.drainEvents().length, 0)
+})
+
 test('Play Again resets round state and preserves the best score in page memory', () => {
   const game = createGameSession()
   let now = startPlaying(game)
