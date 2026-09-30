@@ -3,35 +3,58 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#101829" />
-    <meta name="description" content="Nawras Slasher hand tracking prototype" />
+    <meta name="theme-color" content="#071625" />
+    <meta name="description" content="Nawras Slasher webcam game prototype" />
     <title>Nawras Slasher</title>
   </head>
   <body>
-    <main class="screen">
-      <section class="card" aria-labelledby="app-title">
-        <p class="eyebrow">NawrasEdu</p>
-        <h1 id="app-title">Nawras Slasher</h1>
-        <p class="description">Show your hand to the camera and point with your index finger.</p>
-        <div id="camera-stage" class="camera-stage">
-          <video id="camera-video" autoplay muted playsinline aria-label="Mirrored webcam feed"></video>
-          <canvas id="tracking-canvas" aria-label="Index fingertip cursor"></canvas>
-          <p class="camera-placeholder">Camera preview</p>
+    <main class="app">
+      <div id="camera-stage" class="camera-stage">
+        <video id="camera-video" autoplay muted playsinline aria-label="Mirrored webcam feed"></video>
+        <div class="camera-tint" aria-hidden="true"></div>
+        <div class="camera-grid" aria-hidden="true"></div>
+        <canvas id="tracking-canvas" aria-label="Game targets and fingertip cursor"></canvas>
+        <p class="camera-placeholder">Turn on the camera to begin</p>
+      </div>
+
+      <header class="hud">
+        <div class="hud-brand">
+          <span class="hud-kicker">Interactive prototype</span>
+          <h1>Nawras Slasher</h1>
         </div>
-        <div class="controls">
-          <button id="start-camera" type="button">Start Camera</button>
-          <button id="stop-camera" type="button" disabled>Stop Camera</button>
+        <div class="hud-stats">
+          <div class="hud-stat"><span>Time</span><strong id="timer">03:00</strong></div>
+          <div class="hud-stat"><span>Hits</span><strong id="hit-count">0</strong></div>
         </div>
-        <div class="readouts">
+        <div class="hud-right">
           <p id="status" class="status" role="status" aria-live="polite">Camera off</p>
-          <p class="fps">Detection: <span id="fps-value">0</span> FPS</p>
+          <button id="debug-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="debug-panel">Debug</button>
         </div>
-        <div class="tracking-debug" aria-label="Tracking debug information">
-          <span>Tracking: <strong id="tracking-state">LOST</strong></span>
-          <span>Missing for: <strong id="missing-duration">0</strong> ms</span>
-          <strong id="bridge-indicator" class="bridge-indicator" hidden>BRIDGED</strong>
-        </div>
-      </section>
+      </header>
+
+      <aside id="debug-panel" class="debug-panel" hidden>
+        <div><span>Detection</span><strong><span id="fps-value">0</span> FPS</strong></div>
+        <div><span>Inference</span><strong><span id="detect-ms">0</span> ms</strong></div>
+        <div><span>Camera</span><strong id="camera-resolution">—</strong></div>
+        <div><span>Raw speed</span><strong id="raw-speed">0.00 diag/s</strong></div>
+        <div><span>Tracking</span><strong id="tracking-state">LOST</strong></div>
+        <div><span>Missing</span><strong><span id="missing-duration">0</span> ms</strong></div>
+        <div><span>Prediction</span><strong id="prediction-state">OFF</strong></div>
+        <div><span>Rejected samples</span><strong id="rejected-count">0</strong></div>
+        <div><span>Active targets</span><strong id="active-targets">0</strong></div>
+        <div><span>Last hit</span><strong id="last-hit">—</strong></div>
+        <strong id="bridge-indicator" class="bridge-indicator" hidden>BRIDGED</strong>
+        <button id="spawn-target" class="debug-spawn" type="button" disabled>Spawn Test Target</button>
+      </aside>
+
+      <div id="round-message" class="round-message" hidden>Round complete</div>
+
+      <footer class="controls">
+        <button id="start-camera" type="button">Camera On</button>
+        <button id="stop-camera" type="button" hidden>Camera Off</button>
+        <button id="start-round" class="primary-button" type="button" disabled>Start</button>
+        <button id="reset-round" type="button" disabled>Reset</button>
+      </footer>
     </main>
     <script type="module" src="/src/main.js"></script>
   </body>

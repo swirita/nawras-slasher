@@ -1,0 +1,106 @@
+import { segmentIntersectsCircle } from './geometry.js'
+
+export const MAX_ACTIVE_TARGETS = 5
+export const GRAVITY_PX_PER_S2 = 1050
+export const MAX_PHYSICS_DT_S = 0.05
+export const HIT_EFFECT_MS = 320
+export const SLASH_HIT_RADIUS = 14
+
+const TARGET_COLORS = ['#ff9478', '#ffd978', '#b18cff', '#84d9ff']
+const MAX_TARGET_AGE_MS = 5000
+
+export function createTargetSystem(random = Math.random) {
+  const state = { targets: [], hits: 0, lastHit: null }
+  let nextId = 1
+
+  function activeCount() {
+    let count = 0
+    for (const target of state.targets) if (!target.sliced) count += 1
+    return count
+  }
+
+  function spawn(width, height, now, options = {}) {
+    const { predictable = false, speedScale = 1, activeLimit = MAX_ACTIVE_TARGETS, lanePosition = null } = options
+    if (width <= 0 || height <= 0 || activeCount() >= Math.min(MAX_ACTIVE_TARGETS, activeLimit)) return null
+
+    const id = nextId++
+    const radius = Math.max(26, Math.min(42, Math.min(width, height) * 0.042))
+    const x = predictable
+      ? width / 2
+      : width * (lanePosition === null ? 0.18 + random() * 0.64 : 0.2 + lanePosition * 0.6)
+    const target = {
+      id,
+      x,
+      y: height + radius,
+      vx: predictable ? 0 : ((random() - 0.5) * 160 + (0.5 - x / width) * 50) * speedScale,
+      // Set launch speed from the desired apex height under constant gravity.
+      vy: -Math.sqrt(2 * GRAVITY_PX_PER_S2 * height * (predictable ? 0.68 : 0.58 + random() * 0.17)) * speedScale,
+      radius,
+      sliced: false,
+      slicedAt: null,
+      createdAt: now,
+      color: TARGET_COLORS[(id - 1) % TARGET_COLORS.length],
+    }
+    state.targets.push(target)
+    return target
+  }
+
+  function update(dtSeconds, now, width, height) {
+    const dt = Math.max(0, Math.min(dtSeconds, MAX_PHYSICS_DT_S))
+    for (const target of state.targets) {
+      if (target.sliced) continue
+      target.x += target.vx * dt
+      target.y += target.vy * dt
+      target.vy += GRAVITY_PX_PER_S2 * dt
+    }
+
+    let write = 0
+    for (const target of state.targets) {
+      const visible = target.sliced
+        ? now - target.slicedAt < HIT_EFFECT_MS
+        : now - target.createdAt <= MAX_TARGET_AGE_MS
+          && target.x >= -target.radius && target.x <= width + target.radius
+          && !(target.vy > 0 && target.y > height + target.radius)
+      if (visible) state.targets[write++] = target
+    }
+    state.targets.length = write
+  }
+
+  function hitWithSegment(segment, now) {
+    // A slow move produces no active slash segment; it must never hit a target.
+    if (!segment?.activeSlash) return []
+
+    const hitTargets = []
+    for (const target of state.targets) {
+      if (target.sliced) continue
+      if (!segmentIntersectsCircle(
+        segment.from.x, segment.from.y,
+        segment.to.x, segment.to.y,
+        target.x, target.y, target.radius + SLASH_HIT_RADIUS,
+      )) continue
+
+      target.sliced = true // Immediately prevents duplicate hits.
+      target.slicedAt = now
+      state.hits += 1
+      state.lastHit = {
+        targetId: target.id,
+        segmentType: segment.predicted ? 'PREDICTED' : segment.bridged ? 'BRIDGED' : 'NORMAL',
+      }
+      hitTargets.push(target)
+    }
+    return hitTargets
+  }
+
+  function clearTargets() {
+    state.targets = []
+  }
+
+  function reset() {
+    clearTargets()
+    state.hits = 0
+    state.lastHit = null
+    nextId = 1
+  }
+
+  return { state, spawn, update, hitWithSegment, activeCount, clearTargets, reset }
+}
