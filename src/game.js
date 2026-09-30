@@ -1,9 +1,10 @@
+import { TECH_TARGET_BY_ID } from './catalog.js'
+
 export const GAME_DURATION_MS = 90000
 export const COUNTDOWN_MS = 3000
 export const COMBO_WINDOW_MS = 2000
 export const MAX_COMBO = 5
-export const NORMAL_POINTS = 10
-export const GOLDEN_POINTS = 25
+export const GOLDEN_POINTS = 50
 export const FINAL_WARNING_MS = 15000
 export const INITIAL_SPAWN_INTERVAL_MS = 3400
 export const FINAL_SPAWN_INTERVAL_MS = 1120
@@ -153,16 +154,19 @@ export function createGameSession() {
 
   function scoreTarget(target, now) {
     if (state.phase !== 'PLAYING' || !target || scoredIds.has(target.id)) return null
+    const basePoints = target.kind === 'golden'
+      ? GOLDEN_POINTS : TECH_TARGET_BY_ID.get(target.catalogId)?.basePoints
+    if (!basePoints) return null
     scoredIds.add(target.id)
     state.combo = state.lastHitAt !== null && now - state.lastHitAt < COMBO_WINDOW_MS
       ? Math.min(MAX_COMBO, state.combo + 1) : 1
     state.lastHitAt = now
     state.bestCombo = Math.max(state.bestCombo, state.combo)
-    const basePoints = target.kind === 'golden' ? GOLDEN_POINTS : NORMAL_POINTS
     const points = basePoints * state.combo
     state.score += points
     state.targetsSliced += 1
     const award = { type: 'target-sliced', targetId: target.id, kind: target.kind,
+      catalogId: target.catalogId,
       x: target.x, y: target.y, points, combo: state.combo }
     events.push(award)
     if (state.combo > 1) events.push({ type: 'combo-increase', combo: state.combo })

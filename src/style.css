@@ -182,6 +182,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .debug-panel strong { color: #fff; text-align: right; font-variant-numeric: tabular-nums; }
 .debug-panel .bridge-indicator { display: block; color: #ffe6a4; }
 .debug-spawn { width: 100%; margin-top: 10px; font-size: 0.8rem; }
+.debug-target-label { display: block; margin-top: 12px; color: #bdd0dd; font-size: 0.75rem; }
+.debug-target-select { width: 100%; margin-top: 5px; padding: 8px; border: 1px solid #7392a5;
+  border-radius: 7px; color: #fff; background: #153449; font: inherit; }
 .debug-key { margin: 9px 0 0; color: #b8d0df; font-size: 0.69rem; line-height: 1.4; }
 .combo-indicator,
 .state-callout {

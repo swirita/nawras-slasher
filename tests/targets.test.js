@@ -131,7 +131,7 @@ test('normal and golden targets share collision behavior; golden is a visual var
   assert.equal(normal.kind, 'normal')
   assert.equal(golden.kind, 'golden')
   assert.equal(normal.radius, golden.radius)
-  assert.equal(GOLDEN_TARGET_CHANCE, 0.04)
+  assert.equal(GOLDEN_TARGET_CHANCE, 0.03)
   golden.x = 250
   golden.y = 200
   normal.x = 100
@@ -142,12 +142,12 @@ test('normal and golden targets share collision behavior; golden is a visual var
   assert.equal(targets.state.hits, 1)
 })
 
-test('automatic gold is excluded for nine seconds and then remains an unguaranteed 4% roll', () => {
+test('automatic gold is excluded for nine seconds and then remains an unguaranteed 3% roll', () => {
   assert.equal(GOLDEN_ELIGIBLE_AFTER_MS, 9000)
-  const lucky = createTargetSystem(() => 0)
+  const lucky = createTargetSystem(() => 0.029)
   assert.equal(lucky.spawn(500, 400, 0, { elapsedMs: 8999 }).kind, 'normal')
   assert.equal(lucky.spawn(500, 400, 1, { elapsedMs: 9000 }).kind, 'golden')
-  const unlucky = createTargetSystem(() => 0.5)
+  const unlucky = createTargetSystem(() => 0.031)
   assert.equal(unlucky.spawn(500, 400, 1, { elapsedMs: 9000 }).kind, 'normal')
 })
 

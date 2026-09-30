@@ -2,10 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   createGameSession, COMBO_WINDOW_MS, COUNTDOWN_MS, GAME_DURATION_MS,
-  MAX_COMBO, NORMAL_POINTS, GOLDEN_POINTS, formatTime,
+  MAX_COMBO, GOLDEN_POINTS, formatTime,
 } from '../src/game.js'
+import { TECH_TARGETS } from '../src/catalog.js'
 
-const target = (id, kind = 'normal') => ({ id, kind, x: 100, y: 200 })
+const target = (id, catalogId = 'python') => ({ id,
+  kind: catalogId === 'golden' ? 'golden' : 'normal', catalogId, x: 100, y: 200 })
 
 function startPlaying(game, at = 0) {
   assert.equal(game.startCountdown(at), true)
@@ -40,25 +42,42 @@ test('READY and COUNTDOWN cannot spawn; countdown does not consume round time', 
     ['countdown-tick', 'countdown-tick', 'countdown-tick', 'round-start'])
 })
 
-test('normal and golden points use combo multiplier; unique hits update sliced and best combo', () => {
-  assert.equal(NORMAL_POINTS, 10)
-  assert.equal(GOLDEN_POINTS, 25)
+test('catalog and golden points use combo multiplier; unique hits update sliced and best combo', () => {
+  assert.equal(GOLDEN_POINTS, 50)
   const game = createGameSession()
   const now = startPlaying(game)
   assert.equal(game.state.combo, 1)
   assert.equal(game.scoreTarget(target(1), now + 10).points, 10)
-  assert.equal(game.scoreTarget(target(2, 'golden'), now + 100).points, 50)
+  assert.equal(game.scoreTarget(target(2, 'golden'), now + 100).points, 100)
   assert.equal(game.scoreTarget(target(3), now + 200).points, 30)
   assert.equal(game.scoreTarget(target(4), now + 300).points, 40)
   assert.equal(game.scoreTarget(target(5), now + 400).points, 50)
-  assert.equal(game.scoreTarget(target(6, 'golden'), now + 500).points, 125)
+  assert.equal(game.scoreTarget(target(6, 'golden'), now + 500).points, 250)
   assert.equal(game.state.combo, MAX_COMBO)
   assert.equal(game.state.bestCombo, MAX_COMBO)
-  assert.equal(game.state.score, 305)
+  assert.equal(game.state.score, 480)
   assert.equal(game.state.targetsSliced, 6)
   assert.equal(game.scoreTarget(target(6, 'golden'), now + 600), null)
-  assert.equal(game.state.score, 305)
+  assert.equal(game.state.score, 480)
   assert.equal(game.state.targetsSliced, 6)
+})
+
+test('every technology scores its catalog value, including OpenAI and a combo hit', () => {
+  for (const definition of TECH_TARGETS) {
+    const game = createGameSession()
+    const now = startPlaying(game)
+    assert.equal(game.scoreTarget(target(1, definition.id), now + 10).points,
+      definition.basePoints)
+  }
+  const game = createGameSession()
+  const now = startPlaying(game)
+  game.scoreTarget(target(1, 'python'), now + 10)
+  game.scoreTarget(target(2, 'java'), now + 20)
+  assert.equal(game.scoreTarget(target(3, 'react'), now + 30).points, 45)
+  game.scoreTarget(target(4, 'git'), now + 40)
+  assert.equal(game.scoreTarget(target(5, 'openai'), now + 50).points, 100)
+  assert.equal(game.scoreTarget(target(6, 'golden'), now + 60).points, 250)
+  assert.equal(game.scoreTarget(target(6, 'golden'), now + 70), null)
 })
 
 test('combo expires after two seconds; a miss never resets it', () => {
@@ -72,10 +91,10 @@ test('combo expires after two seconds; a miss never resets it', () => {
   game.update(now + 20 + COMBO_WINDOW_MS)
   assert.equal(game.state.combo, 1)
   assert.equal(game.state.bestCombo, 2)
-  assert.equal(game.scoreTarget(target(3, 'golden'), now + 2100).points, 25)
+  assert.equal(game.scoreTarget(target(3, 'golden'), now + 2100).points, 50)
   game.scoreTarget(target(4), now + 2200)
   // No target was sliced here; elapsed time alone has no score penalty.
-  assert.equal(game.state.score, 10 + 20 + 25 + 20)
+  assert.equal(game.state.score, 10 + 20 + 50 + 20)
 })
 
 test('FINAL 15 emits once, FINISHED occurs at zero, and scoring stops', () => {
@@ -121,7 +140,7 @@ test('Play Again resets round state and preserves the best score in page memory'
   game.scoreTarget(target(1, 'golden'), now + 10)
   game.scoreTarget(target(2), now + 20)
   game.update(now + GAME_DURATION_MS)
-  assert.equal(game.state.highScore, 45)
+  assert.equal(game.state.highScore, 70)
   assert.equal(game.state.newHighScore, true)
   game.reset()
   assert.equal(game.state.phase, 'READY')
@@ -130,12 +149,12 @@ test('Play Again resets round state and preserves the best score in page memory'
   assert.equal(game.state.bestCombo, 1)
   assert.equal(game.state.targetsSliced, 0)
   assert.equal(game.state.remainingMs, GAME_DURATION_MS)
-  assert.equal(game.state.highScore, 45)
+  assert.equal(game.state.highScore, 70)
   assert.equal(game.state.newHighScore, false)
   now = startPlaying(game, 100000)
   game.scoreTarget(target(1), now + 10)
   game.update(now + GAME_DURATION_MS)
   assert.equal(game.state.score, 10)
-  assert.equal(game.state.highScore, 45)
+  assert.equal(game.state.highScore, 70)
   assert.equal(game.state.newHighScore, false)
 })

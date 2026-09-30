@@ -1,4 +1,5 @@
 import { segmentIntersectsCircle } from './geometry.js'
+import { selectWeightedTech, TECH_TARGET_BY_ID } from './catalog.js'
 
 export const MAX_ACTIVE_TARGETS = 5
 export const GRAVITY_PX_PER_S2 = 1050
@@ -9,7 +10,7 @@ export const NORMAL_SLASH_HIT_RADIUS = 24
 export const FAST_SLASH_HIT_RADIUS = 40
 export const PREDICTED_SLASH_HIT_RADIUS = 50
 
-export const GOLDEN_TARGET_CHANCE = 0.04
+export const GOLDEN_TARGET_CHANCE = 0.03
 export const GOLDEN_ELIGIBLE_AFTER_MS = 9000
 const MAX_TARGET_AGE_MS = 5000
 
@@ -25,6 +26,8 @@ export function collisionProfileForSegment(segment) {
 export function createTargetSystem(random = Math.random) {
   const state = { targets: [], hits: 0, lastHit: null, lastCollision: null }
   let nextId = 1
+  let lastAutomaticTechId = null
+  let automaticRepeatCount = 0
 
   function activeCount() {
     let count = 0
@@ -34,8 +37,18 @@ export function createTargetSystem(random = Math.random) {
 
   function spawn(width, height, now, options = {}) {
     const { predictable = false, speedScale = 1, activeLimit = MAX_ACTIVE_TARGETS, lanePosition = null,
-      kind = null, elapsedMs = 0 } = options
+      kind = null, catalogId = null, excludedIds = [], elapsedMs = 0 } = options
     if (width <= 0 || height <= 0 || activeCount() >= Math.min(MAX_ACTIVE_TARGETS, activeLimit)) return null
+
+    const isGolden = kind === 'golden' || (!kind && !catalogId && !predictable
+      && elapsedMs >= GOLDEN_ELIGIBLE_AFTER_MS && random() < GOLDEN_TARGET_CHANCE)
+    const definition = isGolden ? null : catalogId
+      ? TECH_TARGET_BY_ID.get(catalogId)
+      : selectWeightedTech(random, [
+        ...excludedIds,
+        ...(automaticRepeatCount >= 2 ? [lastAutomaticTechId] : []),
+      ])
+    if (!isGolden && !definition) return null
 
     const id = nextId++
     const radius = Math.max(38, Math.min(60, Math.min(width, height) * 0.08))
@@ -59,9 +72,19 @@ export function createTargetSystem(random = Math.random) {
       sliced: false,
       slicedAt: null,
       createdAt: now,
-      kind: kind === 'golden' || (!kind && !predictable && elapsedMs >= GOLDEN_ELIGIBLE_AFTER_MS
-        && random() < GOLDEN_TARGET_CHANCE)
-        ? 'golden' : 'normal',
+      kind: isGolden ? 'golden' : 'normal',
+      catalogId: isGolden ? 'golden' : definition.id,
+      basePoints: isGolden ? 50 : definition.basePoints,
+      visualScale: isGolden ? 1 : definition.visualScale,
+    }
+    if (!predictable && !catalogId && !kind) {
+      if (isGolden) {
+        lastAutomaticTechId = null
+        automaticRepeatCount = 0
+      } else {
+        automaticRepeatCount = definition.id === lastAutomaticTechId ? automaticRepeatCount + 1 : 1
+        lastAutomaticTechId = definition.id
+      }
     }
     target.effectSeed = target.kind === 'golden' ? random() : 0
     state.targets.push(target)
@@ -110,6 +133,7 @@ export function createTargetSystem(random = Math.random) {
       state.hits += 1
       state.lastHit = {
         targetId: target.id,
+        catalogId: target.catalogId,
         segmentType: segment.predicted ? 'PREDICTED' : segment.bridged ? 'BRIDGED' : 'NORMAL',
       }
       hitTargets.push(target)
@@ -127,6 +151,8 @@ export function createTargetSystem(random = Math.random) {
     state.lastHit = null
     state.lastCollision = null
     nextId = 1
+    lastAutomaticTechId = null
+    automaticRepeatCount = 0
   }
 
   return { state, spawn, update, hitWithSegment, activeCount, clearTargets, reset }

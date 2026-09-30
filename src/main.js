@@ -10,12 +10,12 @@ import { createTargetSystem, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS, MAX_ACTIVE_TAR
 import { createGameSession, difficultyAt, formatTime } from './game.js'
 import { createAudioSystem, soundCueForEvent } from './audio.js'
 import { displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
+import { REQUIRED_ASSETS, TECH_TARGETS, TECH_TARGET_BY_ID } from './catalog.js'
+import { containedImageRect, sliceClipPolygon } from './rendering.js'
 import './style.css'
 
 const WASM_ROOT = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
 const MODEL_URL = `${import.meta.env.BASE_URL}models/hand_landmarker.task`
-const WORDMARK_URL = `${import.meta.env.BASE_URL}assets/nawras-name.png`
-const TARGET_ICON_URL = `${import.meta.env.BASE_URL}assets/nawras-small.png`
 const DEBUG_UPDATE_MS = 250
 const FIRST_SPAWN_DELAY_MS = 750
 const FLOATING_TEXT_MS = 800
@@ -33,6 +33,7 @@ const cameraOffButton = document.querySelector('#stop-camera')
 const startRoundButton = document.querySelector('#start-round')
 const resetRoundButton = document.querySelector('#reset-round')
 const spawnButton = document.querySelector('#spawn-target')
+const targetTypeSelect = document.querySelector('#target-type')
 const debugToggle = document.querySelector('#debug-toggle')
 const debugPanel = document.querySelector('#debug-panel')
 const roundMessage = document.querySelector('#round-message')
@@ -80,7 +81,7 @@ const slash = createSlashTracker()
 const targets = createTargetSystem()
 const game = createGameSession()
 const audio = createAudioSystem()
-const assets = { ready: false, error: null, targetIcon: null }
+const assets = { ready: false, error: null, images: new Map() }
 
 let stream = null
 let handLandmarker = null
@@ -116,7 +117,7 @@ function setText(element, value) {
 
 function setStatus(message, isError = false) {
   if (assets.error && !isError) {
-    message = 'NawrasEdu images could not load. Refresh to try again.'
+    message = 'A game image could not load. Refresh to try again.'
     isError = true
   }
   if (game.state.phase === 'FINISHED' && !isError) message = 'Round complete'
@@ -129,7 +130,10 @@ function preloadImage(url) {
     const image = new Image()
     image.onload = () => {
       if (image.naturalWidth && image.naturalHeight) resolve(image)
-      else reject(new Error(`Image has no dimensions: ${url}`))
+      else {
+        console.error(`Game image has no dimensions: ${url}`)
+        reject(new Error(`Image has no dimensions: ${url}`))
+      }
     }
     image.onerror = (event) => {
       console.error(`NawrasEdu image failed to load: ${url}`, event)
@@ -143,7 +147,7 @@ function refreshRoundStart() {
   startRoundButton.disabled = !handLandmarker || !assets.ready || game.state.phase !== 'READY'
   syncPhaseUi()
   if (handLandmarker && game.state.phase === 'READY') {
-    setStatus(assets.ready ? 'Ready — press Start' : 'Loading NawrasEdu images…')
+    setStatus(assets.ready ? 'Ready — press Start' : 'Loading game images…')
   }
 }
 
@@ -155,20 +159,20 @@ function updateSoundButton() {
 
 async function preloadAssets() {
   try {
-    const [wordmark, targetIcon] = await Promise.all([
-      preloadImage(WORDMARK_URL), preloadImage(TARGET_ICON_URL),
-    ])
-    assets.targetIcon = targetIcon
+    const loaded = await Promise.all(REQUIRED_ASSETS.map(async ({ id, asset }) => [
+      id, await preloadImage(`${import.meta.env.BASE_URL}${asset}`),
+    ]))
+    assets.images = new Map(loaded)
     assets.ready = true
-    readyWordmark.src = wordmark.src
-    resultWordmark.src = wordmark.src
+    readyWordmark.src = assets.images.get('wordmark').src
+    resultWordmark.src = assets.images.get('wordmark').src
     readyWordmark.hidden = false
     resultWordmark.hidden = false
     refreshRoundStart()
   } catch (error) {
     assets.error = error
-    console.error('NawrasEdu asset preload failed:', error)
-    setStatus('NawrasEdu images could not load. Refresh to try again.', true)
+    console.error('Game asset preload failed:', error)
+    setStatus(`A game image could not load: ${error.message}. Refresh to try again.`, true)
   }
 }
 
@@ -360,7 +364,9 @@ function updateDebug(now, force = false) {
     ? `${targets.state.lastCollision.radius} px` : '—')
   setText(collisionModeValue, targets.state.lastCollision?.mode ?? '—')
   setText(lastHitValue, targets.state.lastHit
-    ? `#${targets.state.lastHit.targetId} (${targets.state.lastHit.segmentType})`
+    ? `${targets.state.lastHit.catalogId === 'golden' ? 'Golden Nawras'
+      : (TECH_TARGET_BY_ID.get(targets.state.lastHit.catalogId)?.label ?? 'Unknown')} `
+      + `#${targets.state.lastHit.targetId} (${targets.state.lastHit.segmentType})`
     : '—')
   bridgeIndicator.hidden = slash.state.tracking !== 'DETECTED' || now >= slash.state.bridgedUntil
 }
@@ -390,7 +396,11 @@ function resizeCanvas() {
 }
 
 function drawTarget(target, now) {
-  if (!assets.targetIcon) return
+  const image = assets.images.get(target.catalogId)
+  if (!image) return
+  const imageRect = containedImageRect(image.naturalWidth, image.naturalHeight,
+    target.radius, target.visualScale)
+  if (!imageRect) return
   const hitDuration = target.kind === 'golden' ? GOLDEN_HIT_EFFECT_MS : HIT_EFFECT_MS
   const effect = target.sliced ? Math.min(1, (now - target.slicedAt) / hitDuration) : 0
   const radius = target.radius
@@ -479,20 +489,16 @@ function drawTarget(target, now) {
       context.translate(target.x, target.y)
       context.rotate(target.rotation + side * effect * 0.14)
       context.translate(-target.x, -target.y)
-      const tangent = target.hitTangent ?? { x: 0, y: 1 }
-      const normal = target.hitDirection ?? { x: 1, y: 0 }
-      const span = radius * 3
+      const [a, b, c, d] = sliceClipPolygon(target, side)
       context.beginPath()
-      context.moveTo(target.x - tangent.x * span, target.y - tangent.y * span)
-      context.lineTo(target.x + tangent.x * span, target.y + tangent.y * span)
-      context.lineTo(target.x + tangent.x * span + side * normal.x * span,
-        target.y + tangent.y * span + side * normal.y * span)
-      context.lineTo(target.x - tangent.x * span + side * normal.x * span,
-        target.y - tangent.y * span + side * normal.y * span)
+      context.moveTo(a.x, a.y)
+      context.lineTo(b.x, b.y)
+      context.lineTo(c.x, c.y)
+      context.lineTo(d.x, d.y)
       context.closePath()
       context.clip()
-      context.drawImage(assets.targetIcon, target.x - radius, target.y - radius,
-        radius * 2, radius * 2)
+      context.drawImage(image, target.x + imageRect.x, target.y + imageRect.y,
+        imageRect.width, imageRect.height)
       context.restore()
     }
     context.beginPath()
@@ -508,8 +514,8 @@ function drawTarget(target, now) {
     const iconScale = target.kind === 'golden' && entranceAge < 300
       ? entranceAge < 160 ? 0.85 + entranceAge / 160 * 0.2 : 1.05 - (entranceAge - 160) / 140 * 0.05
       : 1
-    context.drawImage(assets.targetIcon, -radius * iconScale, -radius * iconScale,
-      radius * 2 * iconScale, radius * 2 * iconScale)
+    context.drawImage(image, imageRect.x * iconScale, imageRect.y * iconScale,
+      imageRect.width * iconScale, imageRect.height * iconScale)
     if (target.kind === 'golden') {
       const shimmerPeriod = 800 + target.effectSeed * 320
       const shimmerAge = entranceAge % shimmerPeriod
@@ -711,13 +717,16 @@ function spawnWave(now) {
   const groupSize = roll < difficulty.tripleProbability
     ? 3
     : roll < difficulty.tripleProbability + difficulty.pairProbability ? 2 : 1
+  const waveIds = []
   for (let index = 0; index < groupSize; index += 1) {
-    targets.spawn(canvas.clientWidth, canvas.clientHeight, now, {
+    const target = targets.spawn(canvas.clientWidth, canvas.clientHeight, now, {
       activeLimit: difficulty.activeLimit,
       speedScale: difficulty.launchSpeedScale,
       elapsedMs: game.state.elapsedMs,
       lanePosition: groupSize === 1 ? null : index / (groupSize - 1),
+      excludedIds: waveIds,
     })
+    if (target?.kind === 'normal') waveIds.push(target.catalogId)
   }
 }
 
@@ -1010,11 +1019,23 @@ spawnButton.addEventListener('click', () => {
   if (!handLandmarker || !game.canSpawn()) return
   targets.spawn(canvas.clientWidth, canvas.clientHeight, performance.now(), {
     predictable: true,
+    ...(targetTypeSelect.value === 'golden' ? { kind: 'golden' }
+      : targetTypeSelect.value === 'random' ? {} : { catalogId: targetTypeSelect.value }),
     activeLimit: MAX_ACTIVE_TARGETS,
     speedScale: difficultyAt(game.state.elapsedMs).launchSpeedScale,
   })
   updateDebug(performance.now(), true)
 })
+for (const target of TECH_TARGETS) {
+  const option = document.createElement('option')
+  option.value = target.id
+  option.textContent = target.label
+  targetTypeSelect.append(option)
+}
+const goldenTestOption = document.createElement('option')
+goldenTestOption.value = 'golden'
+goldenTestOption.textContent = 'Golden Nawras'
+targetTypeSelect.append(goldenTestOption)
 debugToggle.addEventListener('click', () => {
   debugPanel.hidden = !debugPanel.hidden
   debugToggle.setAttribute('aria-expanded', String(!debugPanel.hidden))
