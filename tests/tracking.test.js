@@ -30,3 +30,21 @@ test('isolated sideways spike is rejected but sustained turn is accepted', () =>
   assert.equal(processor.sample({ x: 132, y: 165 }, 99, 1000).length, 2)
   assert.equal(processor.state.raw.y, 165)
 })
+
+test('fast gameplay path fits straight horizontal, vertical, and diagonal swipes', () => {
+  for (const [dx, dy] of [[28, 0], [0, 28], [20, 20]]) {
+    const processor = createFingerProcessor()
+    for (let index = 0; index < 5; index += 1) {
+      const perpendicular = index % 2 ? 5 : -5
+      const x = 100 + dx * index + (dy ? perpendicular : 0)
+      const y = 100 + dy * index + (dx && dy ? -perpendicular : dx ? perpendicular : 0)
+      processor.sample({ x, y }, index * 33, 1000)
+    }
+    const actual = processor.state.path
+    assert.ok(actual, `path exists for ${dx}, ${dy}`)
+    const offset = dx && !dy ? actual.y - 100
+      : dy && !dx ? actual.x - 100
+        : actual.y - actual.x
+    assert.ok(Math.abs(offset) < 5, `perpendicular wobble reduced for ${dx}, ${dy}: ${offset}`)
+  }
+})

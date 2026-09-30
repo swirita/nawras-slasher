@@ -4,13 +4,24 @@ export const MAX_ACTIVE_TARGETS = 5
 export const GRAVITY_PX_PER_S2 = 1050
 export const MAX_PHYSICS_DT_S = 0.05
 export const HIT_EFFECT_MS = 320
-export const SLASH_HIT_RADIUS = 14
+export const NORMAL_SLASH_HIT_RADIUS = 24
+export const FAST_SLASH_HIT_RADIUS = 40
+export const PREDICTED_SLASH_HIT_RADIUS = 50
 
 const TARGET_COLORS = ['#ff9478', '#ffd978', '#b18cff', '#84d9ff']
 const MAX_TARGET_AGE_MS = 5000
 
+// These CSS-pixel margins affect collision only. Rendering uses the segment's
+// unchanged endpoints, so the visual slash never snaps toward a target.
+export function collisionProfileForSegment(segment) {
+  if (!segment?.activeSlash) return null
+  if (segment.predicted) return { mode: 'PREDICTED', radius: PREDICTED_SLASH_HIT_RADIUS }
+  if (segment.collisionMode === 'FAST') return { mode: 'FAST', radius: FAST_SLASH_HIT_RADIUS }
+  return { mode: 'NORMAL', radius: NORMAL_SLASH_HIT_RADIUS }
+}
+
 export function createTargetSystem(random = Math.random) {
-  const state = { targets: [], hits: 0, lastHit: null }
+  const state = { targets: [], hits: 0, lastHit: null, lastCollision: null }
   let nextId = 1
 
   function activeCount() {
@@ -68,7 +79,9 @@ export function createTargetSystem(random = Math.random) {
 
   function hitWithSegment(segment, now) {
     // A slow move produces no active slash segment; it must never hit a target.
-    if (!segment?.activeSlash) return []
+    const profile = collisionProfileForSegment(segment)
+    if (!profile) return []
+    state.lastCollision = { ...profile, at: now }
 
     const hitTargets = []
     for (const target of state.targets) {
@@ -76,7 +89,7 @@ export function createTargetSystem(random = Math.random) {
       if (!segmentIntersectsCircle(
         segment.from.x, segment.from.y,
         segment.to.x, segment.to.y,
-        target.x, target.y, target.radius + SLASH_HIT_RADIUS,
+        target.x, target.y, target.radius + profile.radius,
       )) continue
 
       target.sliced = true // Immediately prevents duplicate hits.
@@ -99,6 +112,7 @@ export function createTargetSystem(random = Math.random) {
     clearTargets()
     state.hits = 0
     state.lastHit = null
+    state.lastCollision = null
     nextId = 1
   }
 

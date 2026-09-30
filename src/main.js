@@ -1,7 +1,11 @@
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
 import { cameraPointToDisplay } from './geometry.js'
 import { createFingerProcessor } from './tracking.js'
-import { createSlashTracker, TRACKING_LOSS_GRACE_MS, TRAIL_FADE_MS } from './slash.js'
+import { createHandMotionProcessor, estimateFingerFromHand, handAnchorFromLandmarks } from './hand.js'
+import {
+  createSlashTracker, HAND_PREDICTION_MIN_DIRECTION_COSINE,
+  HAND_SLASH_START_SPEED, PREDICTION_MAX_MS, TRAIL_FADE_MS,
+} from './slash.js'
 import { createTargetSystem, HIT_EFFECT_MS, MAX_ACTIVE_TARGETS } from './targets.js'
 import { createGameClock, difficultyAt, formatTime } from './game.js'
 import './style.css'
@@ -30,15 +34,26 @@ const fpsValue = document.querySelector('#fps-value')
 const detectMsValue = document.querySelector('#detect-ms')
 const cameraResolutionValue = document.querySelector('#camera-resolution')
 const rawSpeedValue = document.querySelector('#raw-speed')
+const handSpeedValue = document.querySelector('#hand-speed')
+const handDirectionStabilityValue = document.querySelector('#hand-direction-stability')
+const fingerSourceValue = document.querySelector('#finger-source')
 const trackingStateValue = document.querySelector('#tracking-state')
+const slashArmedValue = document.querySelector('#slash-armed')
 const missingDurationValue = document.querySelector('#missing-duration')
 const predictionStateValue = document.querySelector('#prediction-state')
+const predictionAgeValue = document.querySelector('#prediction-age')
+const directionStabilityValue = document.querySelector('#direction-stability')
 const rejectedCountValue = document.querySelector('#rejected-count')
 const activeTargetsValue = document.querySelector('#active-targets')
+const hitRadiusValue = document.querySelector('#hit-radius')
+const collisionModeValue = document.querySelector('#collision-mode')
 const lastHitValue = document.querySelector('#last-hit')
 const bridgeIndicator = document.querySelector('#bridge-indicator')
+const rawPathToggle = document.querySelector('#raw-path-toggle')
+const motionSourceToggle = document.querySelector('#motion-source-toggle')
 
 const finger = createFingerProcessor()
+const hand = createHandMotionProcessor()
 const slash = createSlashTracker()
 const targets = createTargetSystem()
 const game = createGameClock()
@@ -59,6 +74,10 @@ let displayHeight = 0
 let cancelMetadataWait = null
 let fingerDetected = false
 let hadVisual = false
+let showRawPath = false
+const rawTrail = []
+const anchorTrail = []
+let rawFingerSpeed = 0
 
 function setText(element, value) {
   const next = String(value)
@@ -81,12 +100,24 @@ function updateDebug(now, force = false) {
   lastDebugAt = now
   setText(detectMsValue, averageDetectMs.toFixed(1))
   setText(cameraResolutionValue, video.videoWidth ? `${video.videoWidth} × ${video.videoHeight}` : '—')
-  setText(rawSpeedValue, `${finger.state.rawSpeed.toFixed(2)} diag/s`)
+  setText(rawSpeedValue, `${rawFingerSpeed.toFixed(2)} diag/s`)
+  setText(handSpeedValue, `${hand.state.handSpeed.toFixed(2)} diag/s`)
+  setText(handDirectionStabilityValue, hand.state.reliableStreak >= 3
+    ? hand.state.directionStability.toFixed(2) : '—')
+  setText(fingerSourceValue, slash.state.motionSource === 'FINGER ONLY'
+    ? hand.state.rawFinger ? 'RAW' : 'NONE' : hand.state.fingerSource)
   setText(trackingStateValue, slash.state.tracking)
+  setText(slashArmedValue, slash.state.slashArmed ? 'YES' : 'NO')
   setText(missingDurationValue, slash.state.missingForMs)
-  setText(predictionStateValue, slash.state.predictedPoint ? `${Math.round(slash.state.predictedMs)} ms` : 'OFF')
+  setText(predictionStateValue, slash.state.predictionActive ? 'ON' : 'OFF')
+  setText(predictionAgeValue, `${Math.round(slash.state.predictedMs)} ms`)
+  setText(directionStabilityValue, slash.state.reliableStreak >= 3
+    ? slash.state.directionStability.toFixed(2) : '—')
   setText(rejectedCountValue, finger.state.rejected)
   setText(activeTargetsValue, targets.activeCount())
+  setText(hitRadiusValue, targets.state.lastCollision
+    ? `${targets.state.lastCollision.radius} px` : '—')
+  setText(collisionModeValue, targets.state.lastCollision?.mode ?? '—')
   setText(lastHitValue, targets.state.lastHit
     ? `#${targets.state.lastHit.targetId} (${targets.state.lastHit.segmentType})`
     : '—')
@@ -104,9 +135,13 @@ function resizeCanvas() {
 
   if (displayWidth && displayHeight && (width !== displayWidth || height !== displayHeight)) {
     finger.reset()
+    hand.reset()
     slash.reset()
     targets.clearTargets()
     fingerDetected = false
+    rawTrail.length = 0
+    anchorTrail.length = 0
+    rawFingerSpeed = 0
   }
   displayWidth = width
   displayHeight = height
@@ -144,36 +179,92 @@ function drawScene(now) {
   context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
   for (const target of targets.state.targets) drawTarget(target, now)
 
+  if (showRawPath && !debugPanel.hidden) {
+    context.lineCap = 'round'
+    for (let index = 1; index < rawTrail.length; index += 1) {
+      const opacity = Math.max(0, 1 - (now - rawTrail[index].at) / 300)
+      if (!opacity || rawTrail[index].at - rawTrail[index - 1].at > 100) continue
+      context.lineWidth = 2
+      context.strokeStyle = `rgba(46, 72, 94, ${opacity * 0.5})`
+      context.beginPath()
+      context.moveTo(rawTrail[index - 1].x, rawTrail[index - 1].y)
+      context.lineTo(rawTrail[index].x, rawTrail[index].y)
+      context.stroke()
+    }
+    context.lineWidth = 2
+    context.lineCap = 'round'
+    for (let index = 1; index < anchorTrail.length; index += 1) {
+      const opacity = Math.max(0, 1 - (now - anchorTrail[index].at) / 300)
+      if (!opacity || anchorTrail[index].at - anchorTrail[index - 1].at > 100) continue
+      context.strokeStyle = `rgba(122, 49, 159, ${opacity * 0.55})`
+      context.beginPath()
+      context.moveTo(anchorTrail[index - 1].x, anchorTrail[index - 1].y)
+      context.lineTo(anchorTrail[index].x, anchorTrail[index].y)
+      context.stroke()
+    }
+  }
+
   for (const segment of slash.state.trail) {
     const opacity = Math.max(0, 1 - (now - segment.at) / TRAIL_FADE_MS)
+    if (!opacity) continue
     context.beginPath()
     context.moveTo(segment.from.x, segment.from.y)
     context.lineTo(segment.to.x, segment.to.y)
-    context.lineWidth = segment.predicted ? 8 : 10
+    context.lineWidth = (segment.predicted ? 5 : 6) + 7 * opacity
     context.lineCap = 'round'
+    context.lineJoin = 'round'
     context.strokeStyle = segment.predicted
-      ? `rgba(255, 207, 141, ${opacity * 0.7})`
+      ? `rgba(181, 91, 13, ${opacity * 0.8})`
       : segment.bridged
-        ? `rgba(255, 225, 160, ${opacity})`
-        : `rgba(135, 220, 206, ${opacity})`
+        ? `rgba(18, 117, 143, ${opacity})`
+        : `rgba(9, 104, 156, ${opacity})`
+    context.stroke()
+    context.lineWidth = Math.max(1.5, context.lineWidth * 0.28)
+    context.strokeStyle = segment.predicted
+      ? `rgba(255, 228, 180, ${opacity})`
+      : `rgba(231, 255, 255, ${opacity})`
     context.stroke()
   }
 
-  const ghost = slash.state.tracking === 'GRACE'
+  if (showRawPath && !debugPanel.hidden) {
+    const raw = rawTrail.at(-1)
+    if (raw && now - raw.at < 300) {
+      context.beginPath()
+      context.arc(raw.x, raw.y, 5, 0, Math.PI * 2)
+      context.fillStyle = '#f09835'
+      context.fill()
+    }
+    const anchor = anchorTrail.at(-1)
+    if (anchor && now - anchor.at < 300) {
+      context.beginPath()
+      context.arc(anchor.x, anchor.y, 7, 0, Math.PI * 2)
+      context.fillStyle = '#a869cc'
+      context.fill()
+      context.lineWidth = 2
+      context.strokeStyle = '#fff'
+      context.stroke()
+    }
+  }
+
+  const ghost = slash.state.predictionActive
   const cursor = ghost ? slash.state.predictedPoint ?? finger.state.smooth : finger.state.smooth
   if (!cursor || (!fingerDetected && !ghost)) return
   const opacity = ghost && slash.state.lastReliableAt !== null
-    ? Math.max(0, 1 - (now - slash.state.lastReliableAt) / TRACKING_LOSS_GRACE_MS)
+    ? Math.max(0, 1 - (now - slash.state.lastReliableAt) / PREDICTION_MAX_MS)
     : 1
   if (opacity <= 0) return
   context.globalAlpha = opacity
   context.beginPath()
-  context.arc(cursor.x, cursor.y, 13, 0, Math.PI * 2)
-  context.fillStyle = '#8de7d8'
+  context.arc(cursor.x, cursor.y, 15, 0, Math.PI * 2)
+  context.fillStyle = '#00c8df'
   context.fill()
-  context.lineWidth = 3
-  context.strokeStyle = '#102136'
+  context.lineWidth = 4
+  context.strokeStyle = '#073c55'
   context.stroke()
+  context.beginPath()
+  context.arc(cursor.x, cursor.y, 4, 0, Math.PI * 2)
+  context.fillStyle = '#fff'
+  context.fill()
   context.globalAlpha = 1
 }
 
@@ -182,23 +273,64 @@ function applySlashSegment(segment, now) {
 }
 
 function processResult(result, now) {
-  const tip = result.landmarks[0]?.[8]
-  const point = tip && cameraPointToDisplay(
-    tip.x, tip.y, video.videoWidth, video.videoHeight, canvas.clientWidth, canvas.clientHeight,
+  const landmarks = result.landmarks[0]
+  const tip = landmarks?.[8]
+  const rawPoint = tip && Number.isFinite(tip.x) && Number.isFinite(tip.y)
+    ? cameraPointToDisplay(tip.x, tip.y, video.videoWidth, video.videoHeight,
+      canvas.clientWidth, canvas.clientHeight)
+    : null
+  const anchorNormalized = handAnchorFromLandmarks(landmarks)
+  const anchor = anchorNormalized && cameraPointToDisplay(
+    anchorNormalized.x, anchorNormalized.y, video.videoWidth, video.videoHeight,
+    canvas.clientWidth, canvas.clientHeight,
   )
+  const diagonal = Math.hypot(canvas.clientWidth, canvas.clientHeight)
+  const handSample = landmarks ? hand.sample(anchor, rawPoint, now, diagonal) : null
+  if (landmarks && slash.state.motionSource === 'HYBRID') slash.observeMotion(handSample.motion)
+  const point = slash.state.motionSource === 'HYBRID' ? handSample?.point : rawPoint
   fingerDetected = Boolean(point)
 
+  if (rawPoint) {
+    const previous = rawTrail.at(-1)
+    const elapsed = previous ? now - previous.at : 0
+    rawFingerSpeed = previous && elapsed > 0 && elapsed <= 150
+      ? Math.hypot(rawPoint.x - previous.x, rawPoint.y - previous.y) * 1000 / (diagonal * elapsed)
+      : 0
+    rawTrail.push({ ...rawPoint, at: now })
+    while (rawTrail.length > 16 || (rawTrail.length && now - rawTrail[0].at > 300)) rawTrail.shift()
+  } else rawFingerSpeed = 0
+  if (anchor) {
+    anchorTrail.push({ ...hand.state.smoothedHandAnchor, at: now })
+    while (anchorTrail.length > 16 || (anchorTrail.length && now - anchorTrail[0].at > 300)) anchorTrail.shift()
+  }
+
   if (point) {
-    const diagonal = Math.hypot(canvas.clientWidth, canvas.clientHeight)
-    for (const sample of finger.sample(point, now, diagonal)) {
-      const { segment } = slash.detected(sample.point, sample.at, diagonal)
+    let samples = slash.state.motionSource === 'HYBRID' && handSample.fingerSource === 'ESTIMATED'
+      ? finger.sampleEstimated(point, now, diagonal)
+      : finger.sample(point, now, diagonal)
+    if (!samples.length && slash.state.motionSource === 'HYBRID'
+      && handSample.motion?.offsetFresh && handSample.motion.reliableStreak >= 3
+      && handSample.motion.speed >= HAND_SLASH_START_SPEED
+      && handSample.motion.directionStability >= HAND_PREDICTION_MIN_DIRECTION_COSINE) {
+      const estimate = estimateFingerFromHand(handSample.motion.anchor, handSample.motion.offset)
+      samples = finger.sampleEstimated(estimate, now, diagonal)
+      hand.state.fingerSource = 'ESTIMATED'
+      handSample.motion.fingerSource = 'ESTIMATED'
+    }
+    for (const sample of samples) {
+      const motion = slash.state.motionSource === 'HYBRID' ? handSample.motion : undefined
+      const { segment } = slash.detected(sample.point, sample.at, diagonal, motion)
       applySlashSegment(segment, now)
     }
+    if (finger.state.pending && (slash.state.motionSource === 'FINGER ONLY'
+      || !handSample.motion?.offsetFresh)) slash.disarm()
     setStatus('Hand detected')
   } else {
     finger.state.pending = null
+    if (!landmarks) hand.markMissing()
     applySlashSegment(slash.missing(now), now)
-    setStatus(slash.state.tracking === 'GRACE' ? 'Tracking briefly lost…' : 'Show your hand')
+    setStatus(slash.state.predictionActive ? 'Predicting slash…'
+      : slash.state.tracking === 'GRACE' ? 'Tracking briefly lost…' : 'Show your hand')
   }
 }
 
@@ -261,16 +393,24 @@ function frame(activeSession) {
     }
 
     const renderNow = performance.now()
-    slash.tick(renderNow)
-    if (slash.state.tracking === 'LOST') {
-      if (!fingerDetected && finger.state.raw) finger.reset()
+    while (rawTrail.length && renderNow - rawTrail[0].at > 300) rawTrail.shift()
+    while (anchorTrail.length && renderNow - anchorTrail[0].at > 300) anchorTrail.shift()
+    applySlashSegment(slash.tick(renderNow), renderNow)
+    if (slash.state.tracking !== 'DETECTED') {
       fingerDetected = false
-      if (game.state.phase !== 'ended') setStatus('Show your hand')
+      if (game.state.phase !== 'ended') setStatus(slash.state.predictionActive
+        ? 'Predicting slash…'
+        : slash.state.tracking === 'GRACE' ? 'Tracking briefly lost…' : 'Show your hand')
+    }
+    if (slash.state.tracking === 'LOST' && !slash.state.predictionActive) {
+      if (!fingerDetected && finger.state.raw) finger.reset()
+      if (!fingerDetected && hand.state.rawHandAnchor) hand.reset()
     }
     updateHud()
     updateDebug(renderNow)
-    const hasVisual = fingerDetected || slash.state.tracking === 'GRACE'
+    const hasVisual = fingerDetected || slash.state.predictionActive
       || slash.state.trail.length > 0 || targets.state.targets.length > 0
+      || (showRawPath && !debugPanel.hidden && (rawTrail.length > 0 || anchorTrail.length > 0))
     if (hasVisual || hadVisual) drawScene(renderNow)
     hadVisual = hasVisual
   } catch (error) {
@@ -409,7 +549,11 @@ function resetRound() {
   targets.reset()
   slash.reset()
   finger.reset()
+  hand.reset()
   fingerDetected = false
+  rawTrail.length = 0
+  anchorTrail.length = 0
+  rawFingerSpeed = 0
   nextSpawnAt = 0
   roundMessage.hidden = true
   startRoundButton.disabled = !handLandmarker
@@ -455,7 +599,11 @@ startRoundButton.addEventListener('click', () => {
   targets.reset()
   slash.reset()
   finger.reset()
+  hand.reset()
   fingerDetected = false
+  rawTrail.length = 0
+  anchorTrail.length = 0
+  rawFingerSpeed = 0
   nextSpawnAt = performance.now() + FIRST_SPAWN_DELAY_MS
   startRoundButton.disabled = true
   spawnButton.disabled = false
@@ -477,4 +625,21 @@ debugToggle.addEventListener('click', () => {
   debugPanel.hidden = !debugPanel.hidden
   debugToggle.setAttribute('aria-expanded', String(!debugPanel.hidden))
   updateDebug(performance.now(), true)
+})
+rawPathToggle.addEventListener('click', () => {
+  showRawPath = !showRawPath
+  rawPathToggle.setAttribute('aria-pressed', String(showRawPath))
+  setText(rawPathToggle, `Tracking overlay: ${showRawPath ? 'SHOW' : 'HIDE'}`)
+})
+motionSourceToggle.addEventListener('click', () => {
+  slash.setMotionSource(slash.state.motionSource === 'HYBRID' ? 'FINGER ONLY' : 'HYBRID')
+  finger.reset()
+  hand.reset()
+  rawTrail.length = 0
+  anchorTrail.length = 0
+  rawFingerSpeed = 0
+  fingerDetected = false
+  setText(motionSourceToggle, `Motion source: ${slash.state.motionSource}`)
+  updateDebug(performance.now(), true)
+  drawScene(performance.now())
 })

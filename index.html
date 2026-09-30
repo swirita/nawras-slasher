@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#071625" />
+    <meta name="theme-color" content="#eaf4fb" />
     <meta name="description" content="Nawras Slasher webcam game prototype" />
     <title>Nawras Slasher</title>
   </head>
@@ -23,7 +23,7 @@
           <h1>Nawras Slasher</h1>
         </div>
         <div class="hud-stats">
-          <div class="hud-stat"><span>Time</span><strong id="timer">03:00</strong></div>
+          <div class="hud-stat"><span>Time</span><strong id="timer">01:30</strong></div>
           <div class="hud-stat"><span>Hits</span><strong id="hit-count">0</strong></div>
         </div>
         <div class="hud-right">
@@ -36,14 +36,25 @@
         <div><span>Detection</span><strong><span id="fps-value">0</span> FPS</strong></div>
         <div><span>Inference</span><strong><span id="detect-ms">0</span> ms</strong></div>
         <div><span>Camera</span><strong id="camera-resolution">—</strong></div>
-        <div><span>Raw speed</span><strong id="raw-speed">0.00 diag/s</strong></div>
+        <div><span>Finger speed</span><strong id="raw-speed">0.00 diag/s</strong></div>
+        <div><span>Hand speed</span><strong id="hand-speed">0.00 diag/s</strong></div>
+        <div><span>Hand direction stability</span><strong id="hand-direction-stability">—</strong></div>
+        <div><span>Finger source</span><strong id="finger-source">NONE</strong></div>
         <div><span>Tracking</span><strong id="tracking-state">LOST</strong></div>
+        <div><span>Slash armed</span><strong id="slash-armed">NO</strong></div>
         <div><span>Missing</span><strong><span id="missing-duration">0</span> ms</strong></div>
         <div><span>Prediction</span><strong id="prediction-state">OFF</strong></div>
+        <div><span>Prediction age</span><strong id="prediction-age">0 ms</strong></div>
+        <div><span>Direction stability</span><strong id="direction-stability">—</strong></div>
         <div><span>Rejected samples</span><strong id="rejected-count">0</strong></div>
         <div><span>Active targets</span><strong id="active-targets">0</strong></div>
+        <div><span>Hit radius</span><strong id="hit-radius">—</strong></div>
+        <div><span>Collision mode</span><strong id="collision-mode">—</strong></div>
         <div><span>Last hit</span><strong id="last-hit">—</strong></div>
         <strong id="bridge-indicator" class="bridge-indicator" hidden>BRIDGED</strong>
+        <button id="motion-source-toggle" class="debug-spawn" type="button">Motion source: HYBRID</button>
+        <button id="raw-path-toggle" class="debug-spawn" type="button" aria-pressed="false">Tracking overlay: HIDE</button>
+        <p class="debug-key">Overlay: orange raw tip · cyan processed tip · purple palm/path · blue gameplay slash</p>
         <button id="spawn-target" class="debug-spawn" type="button" disabled>Spawn Test Target</button>
       </aside>
 
