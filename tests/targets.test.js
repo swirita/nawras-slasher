@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   createTargetSystem, collisionProfileForSegment, MAX_ACTIVE_TARGETS,
   NORMAL_SLASH_HIT_RADIUS, FAST_SLASH_HIT_RADIUS, PREDICTED_SLASH_HIT_RADIUS,
+  GOLDEN_TARGET_CHANCE,
 } from '../src/targets.js'
 import { createSlashTracker } from '../src/slash.js'
 
@@ -121,6 +122,24 @@ test('target count respects both early difficulty and absolute limits', () => {
   assert.equal(targets.spawn(500, 400, 1, { activeLimit: 1 }), null)
   for (let i = 0; i < MAX_ACTIVE_TARGETS + 2; i += 1) targets.spawn(500, 400, i + 2)
   assert.equal(targets.activeCount(), MAX_ACTIVE_TARGETS)
+})
+
+test('normal and golden targets share collision behavior; golden is a visual variant', () => {
+  const targets = createTargetSystem(() => 0)
+  const normal = targets.spawn(500, 400, 0, { predictable: true })
+  const golden = targets.spawn(500, 400, 0, { kind: 'golden' })
+  assert.equal(normal.kind, 'normal')
+  assert.equal(golden.kind, 'golden')
+  assert.equal(normal.radius, golden.radius)
+  assert.equal(GOLDEN_TARGET_CHANCE, 0.1)
+  golden.x = 250
+  golden.y = 200
+  normal.x = 100
+  normal.y = 100
+  const segment = { from: { x: 210, y: 200 }, to: { x: 290, y: 200 }, activeSlash: true }
+  assert.deepEqual(targets.hitWithSegment(segment, 10), [golden])
+  assert.deepEqual(targets.hitWithSegment(segment, 20), [])
+  assert.equal(targets.state.hits, 1)
 })
 
 test('a strictly approved predicted segment can hit a target', () => {

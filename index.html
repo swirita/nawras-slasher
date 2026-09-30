@@ -14,7 +14,13 @@
         <div class="camera-tint" aria-hidden="true"></div>
         <div class="camera-grid" aria-hidden="true"></div>
         <canvas id="tracking-canvas" aria-label="Game targets and fingertip cursor"></canvas>
-        <p class="camera-placeholder">Turn on the camera to begin</p>
+        <div id="ready-brand" class="ready-brand">
+          <img id="ready-wordmark" alt="NawrasEdu" hidden />
+          <p>Nawras Slasher</p>
+          <span>Slash the NS logos with your finger.</span>
+          <span class="ready-gold">Golden targets are worth more!</span>
+          <small>Turn on the camera, then press Start.</small>
+        </div>
       </div>
 
       <header class="hud">
@@ -23,8 +29,8 @@
           <h1>Nawras Slasher</h1>
         </div>
         <div class="hud-stats">
-          <div class="hud-stat"><span>Time</span><strong id="timer">01:30</strong></div>
-          <div class="hud-stat"><span>Hits</span><strong id="hit-count">0</strong></div>
+          <div class="hud-stat"><span>Score</span><strong id="score">0</strong></div>
+          <div id="timer-stat" class="hud-stat"><span>Time</span><strong id="timer">01:30</strong></div>
         </div>
         <div class="hud-right">
           <p id="status" class="status" role="status" aria-live="polite">Camera off</p>
@@ -58,13 +64,26 @@
         <button id="spawn-target" class="debug-spawn" type="button" disabled>Spawn Test Target</button>
       </aside>
 
-      <div id="round-message" class="round-message" hidden>Round complete</div>
+      <div id="combo-indicator" class="combo-indicator" hidden></div>
+      <div id="state-callout" class="state-callout" hidden></div>
+      <div id="round-message" class="round-message" hidden>
+        <img id="result-wordmark" alt="NawrasEdu" hidden />
+        <strong>TIME'S UP!</strong>
+        <div class="result-stats">
+          <div><span>FINAL SCORE</span><b id="final-score">0</b></div>
+          <div><span>TARGETS SLICED</span><b id="final-sliced">0</b></div>
+          <div><span>BEST COMBO</span><b id="final-combo">x1</b></div>
+          <div><span>HIGH SCORE</span><b id="high-score">0</b></div>
+        </div>
+        <p id="new-high-score" class="new-high-score" hidden>NEW HIGH SCORE!</p>
+        <button id="play-again" type="button">PLAY AGAIN</button>
+      </div>
 
       <footer class="controls">
         <button id="start-camera" type="button">Camera On</button>
         <button id="stop-camera" type="button" hidden>Camera Off</button>
-        <button id="start-round" class="primary-button" type="button" disabled>Start</button>
-        <button id="reset-round" type="button" disabled>Reset</button>
+        <button id="start-round" class="primary-button" type="button" disabled>START</button>
+        <button id="reset-round" type="button" disabled>RESET</button>
       </footer>
     </main>
     <script type="module" src="/src/main.js"></script>

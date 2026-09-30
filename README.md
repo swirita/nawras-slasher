@@ -1,6 +1,6 @@
 # Nawras Slasher
 
-A webcam-controlled browser game prototype. It uses one MediaPipe-tracked hand, a processed index-fingertip slash path, and simple colored targets. Final assets and game systems are not included.
+A webcam-controlled browser game prototype. It uses one MediaPipe-tracked hand, a processed index-fingertip slash path, and local NawrasEdu artwork. Final game systems are not included.
 
 ## Run locally
 
@@ -23,8 +23,10 @@ Camera access needs browser permission and HTTPS or localhost. The Hand Landmark
 ## Controls
 
 - **Camera On / Camera Off:** start or release the webcam. Camera permission is requested only after Camera On is clicked.
-- **Start:** begin the 90-second round and target spawning. The timer does not run before Start.
-- **Reset:** restore the timer, target state, hits, slash state, and starting difficulty while keeping the camera running.
+- **START:** show a 3, 2, 1 countdown; the 90-second timer and target spawning begin at SLASH!
+- The Start button becomes available after the camera tracker and both local NawrasEdu images load. If an image fails, the status shows an error and gameplay stays disabled.
+- **RESET:** return to READY with a fresh score, timer, combo, and target state while keeping the camera running.
+- **PLAY AGAIN:** after time runs out, reset round state and start another countdown without reloading the webcam or tracker. The session high score remains until page refresh.
 - **Debug:** show finger/hand speed, hand direction stability, slash arming, prediction, and a manual Spawn Test Target button. The tracking overlay compares the raw fingertip, processed fingertip, hand anchor/path, and gameplay slash. The Motion source button switches between **HYBRID** (default) and **FINGER ONLY** for physical comparison; switching clears movement history safely.
 
 ## Tracking and gameplay notes
@@ -35,8 +37,10 @@ Camera access needs browser permission and HTTPS or localhost. The Hand Landmark
 - The gameplay slash begins with a causal three-point fingertip average (0.62, 0.28, 0.10) and a short time-based line fit. During fast, directionally stable hand movement, its position is additionally constrained toward the palm trajectory plus finger offset, suppressing perpendicular fingertip wobble without fixing a horizontal, vertical, or diagonal direction. **Only cleaned gameplay segments** are rendered strongly and collision-tested. Invisible tolerance beyond target radius is 24 CSS pixels for normal valid slashes, 40 for fast armed slashes, and 50 for valid predicted segments. Slow pointer movement still creates no hittable segment.
 - In HYBRID mode, three recent continuous palm samples (at most 70 ms apart), hand speed at least 0.38 screen diagonals/second, direction cosine at least 0.86, and a fresh finger offset arm prediction. Finger-only comparison retains the prior fingertip thresholds (0.43 and 0.90). On complete hand loss, the last hand-anchor velocity (70% newest, 30% previous) moves the hand forward; the recent smoothed finger offset places the predicted fingertip. Velocity decays linearly to zero over at most 150 ms. Valid predicted segments can hit targets. Long loss or inconsistent reacquisition starts a fresh path.
 - The game lasts 90 seconds. Target spawn interval decreases gradually from 4.3 to 1.5 seconds. Launch speed scale rises from 0.82 to 1.10. Pair probability rises from 0 to 0.56, triple probability from 0 to 0.10. The practical active target limit rises from one to five, with a hard cap of five. All difficulty values use elapsed time divided by the 90-second round duration.
+- Successful normal targets start at 10 points; golden targets start at 25. Hits within two seconds build a multiplier from x1 to x5. Misses have no penalty. The session tracks targets sliced, best combo, and a page-memory high score. Small bounded canvas effects show points, slice pieces, and six cool or ten golden particles per hit. Game events for countdown, slices, combo changes, final 15 seconds, and results are centralized in `src/game.js` for future audio hooks.
 - The visible webcam uses 28% opacity, 8 px blur, 1.35 brightness, and 0.55 contrast over a pale blue background, plus a white/blue tint and a faint grid. These are display-only CSS effects; MediaPipe still receives the original video element frames. The values are grouped as CSS variables in `src/style.css` for manual privacy tuning.
 - Targets, slash segments, cursor, and collision sizes all use CSS pixels in the fullscreen mirrored display. Canvas backing pixels scale by `devicePixelRatio` for sharp drawing. Resizing clears targets and movement history to prevent false hits.
+- `public/assets/nawras-name.png` is the horizontal wordmark on the ready and result screens. `public/assets/nawras-small.png` is the square NS image for every flying target and sliced halves. Normal targets have no colored backing circle. About 10% of automatic targets are golden visual variants: the same NS image with a gold ring, glow, and small accents around it. Golden targets currently have the same hit behavior as normal targets. Both images are preloaded before gameplay. The target collision shape remains a circle in CSS pixels.
 
 Vite produces a static site in `dist/`. For a future GitHub Pages repository site, set Vite's `base` to `/<repository-name>/` before deployment.
 

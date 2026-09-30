@@ -8,7 +8,7 @@ export const NORMAL_SLASH_HIT_RADIUS = 24
 export const FAST_SLASH_HIT_RADIUS = 40
 export const PREDICTED_SLASH_HIT_RADIUS = 50
 
-const TARGET_COLORS = ['#ff9478', '#ffd978', '#b18cff', '#84d9ff']
+export const GOLDEN_TARGET_CHANCE = 0.1
 const MAX_TARGET_AGE_MS = 5000
 
 // These CSS-pixel margins affect collision only. Rendering uses the segment's
@@ -31,11 +31,12 @@ export function createTargetSystem(random = Math.random) {
   }
 
   function spawn(width, height, now, options = {}) {
-    const { predictable = false, speedScale = 1, activeLimit = MAX_ACTIVE_TARGETS, lanePosition = null } = options
+    const { predictable = false, speedScale = 1, activeLimit = MAX_ACTIVE_TARGETS, lanePosition = null,
+      kind = null } = options
     if (width <= 0 || height <= 0 || activeCount() >= Math.min(MAX_ACTIVE_TARGETS, activeLimit)) return null
 
     const id = nextId++
-    const radius = Math.max(26, Math.min(42, Math.min(width, height) * 0.042))
+    const radius = Math.max(38, Math.min(60, Math.min(width, height) * 0.08))
     const x = predictable
       ? width / 2
       : width * (lanePosition === null ? 0.18 + random() * 0.64 : 0.2 + lanePosition * 0.6)
@@ -50,7 +51,8 @@ export function createTargetSystem(random = Math.random) {
       sliced: false,
       slicedAt: null,
       createdAt: now,
-      color: TARGET_COLORS[(id - 1) % TARGET_COLORS.length],
+      kind: kind === 'golden' || (!kind && !predictable && random() < GOLDEN_TARGET_CHANCE)
+        ? 'golden' : 'normal',
     }
     state.targets.push(target)
     return target

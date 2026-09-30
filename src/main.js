@@ -7,13 +7,18 @@ import {
   HAND_SLASH_START_SPEED, PREDICTION_MAX_MS, TRAIL_FADE_MS,
 } from './slash.js'
 import { createTargetSystem, HIT_EFFECT_MS, MAX_ACTIVE_TARGETS } from './targets.js'
-import { createGameClock, difficultyAt, formatTime } from './game.js'
+import { createGameSession, difficultyAt, formatTime } from './game.js'
 import './style.css'
 
 const WASM_ROOT = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
 const MODEL_URL = `${import.meta.env.BASE_URL}models/hand_landmarker.task`
+const WORDMARK_URL = `${import.meta.env.BASE_URL}assets/nawras-name.png`
+const TARGET_ICON_URL = `${import.meta.env.BASE_URL}assets/nawras-small.png`
 const DEBUG_UPDATE_MS = 250
 const FIRST_SPAWN_DELAY_MS = 750
+const FLOATING_TEXT_MS = 800
+const PARTICLE_MS = 450
+const NUMBER_FORMAT = new Intl.NumberFormat()
 
 const stage = document.querySelector('#camera-stage')
 const video = document.querySelector('#camera-video')
@@ -27,9 +32,22 @@ const spawnButton = document.querySelector('#spawn-target')
 const debugToggle = document.querySelector('#debug-toggle')
 const debugPanel = document.querySelector('#debug-panel')
 const roundMessage = document.querySelector('#round-message')
+const app = document.querySelector('.app')
+const stateCallout = document.querySelector('#state-callout')
+const comboIndicator = document.querySelector('#combo-indicator')
+const timerStat = document.querySelector('#timer-stat')
+const finalScoreValue = document.querySelector('#final-score')
+const finalSlicedValue = document.querySelector('#final-sliced')
+const finalComboValue = document.querySelector('#final-combo')
+const highScoreValue = document.querySelector('#high-score')
+const newHighScoreMessage = document.querySelector('#new-high-score')
+const playAgainButton = document.querySelector('#play-again')
+const readyBrand = document.querySelector('#ready-brand')
+const readyWordmark = document.querySelector('#ready-wordmark')
+const resultWordmark = document.querySelector('#result-wordmark')
 const status = document.querySelector('#status')
 const timerValue = document.querySelector('#timer')
-const hitCountValue = document.querySelector('#hit-count')
+const scoreValue = document.querySelector('#score')
 const fpsValue = document.querySelector('#fps-value')
 const detectMsValue = document.querySelector('#detect-ms')
 const cameraResolutionValue = document.querySelector('#camera-resolution')
@@ -56,7 +74,8 @@ const finger = createFingerProcessor()
 const hand = createHandMotionProcessor()
 const slash = createSlashTracker()
 const targets = createTargetSystem()
-const game = createGameClock()
+const game = createGameSession()
+const assets = { ready: false, error: null, targetIcon: null }
 
 let stream = null
 let handLandmarker = null
@@ -78,6 +97,9 @@ let showRawPath = false
 const rawTrail = []
 const anchorTrail = []
 let rawFingerSpeed = 0
+const floatingTexts = []
+const particles = []
+let calloutUntil = 0
 
 function setText(element, value) {
   const next = String(value)
@@ -85,14 +107,179 @@ function setText(element, value) {
 }
 
 function setStatus(message, isError = false) {
-  if (game.state.phase === 'ended' && !isError) message = 'Round complete'
+  if (assets.error && !isError) {
+    message = 'NawrasEdu images could not load. Refresh to try again.'
+    isError = true
+  }
+  if (game.state.phase === 'FINISHED' && !isError) message = 'Round complete'
   setText(status, message)
   status.classList.toggle('error', isError)
 }
 
+function preloadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      if (image.naturalWidth && image.naturalHeight) resolve(image)
+      else reject(new Error(`Image has no dimensions: ${url}`))
+    }
+    image.onerror = (event) => {
+      console.error(`NawrasEdu image failed to load: ${url}`, event)
+      reject(new Error(`Could not load ${url}`))
+    }
+    image.src = url
+  })
+}
+
+function refreshRoundStart() {
+  startRoundButton.disabled = !handLandmarker || !assets.ready || game.state.phase !== 'READY'
+  if (handLandmarker && game.state.phase === 'READY') {
+    setStatus(assets.ready ? 'Ready — press Start' : 'Loading NawrasEdu images…')
+  }
+}
+
+async function preloadAssets() {
+  try {
+    const [wordmark, targetIcon] = await Promise.all([
+      preloadImage(WORDMARK_URL), preloadImage(TARGET_ICON_URL),
+    ])
+    assets.targetIcon = targetIcon
+    assets.ready = true
+    readyWordmark.src = wordmark.src
+    resultWordmark.src = wordmark.src
+    readyWordmark.hidden = false
+    resultWordmark.hidden = false
+    refreshRoundStart()
+  } catch (error) {
+    assets.error = error
+    console.error('NawrasEdu asset preload failed:', error)
+    setStatus('NawrasEdu images could not load. Refresh to try again.', true)
+  }
+}
+
 function updateHud() {
   setText(timerValue, formatTime(game.state.remainingMs))
-  setText(hitCountValue, targets.state.hits)
+  setText(scoreValue, NUMBER_FORMAT.format(game.state.score))
+  timerStat.classList.toggle('final-time', game.state.phase === 'PLAYING'
+    && game.state.remainingMs <= 15000)
+  const showCombo = game.state.phase === 'PLAYING' && game.state.combo > 1
+  comboIndicator.hidden = !showCombo
+  if (showCombo) {
+    setText(comboIndicator, `x${game.state.combo} COMBO${game.state.combo === 5 ? '!' : ''}`)
+    comboIndicator.dataset.level = String(game.state.combo)
+  }
+}
+
+function syncPhaseUi() {
+  app.dataset.phase = game.state.phase
+  readyBrand.hidden = game.state.phase !== 'READY'
+  roundMessage.hidden = game.state.phase !== 'FINISHED'
+  startRoundButton.hidden = game.state.phase !== 'READY'
+  resetRoundButton.hidden = game.state.phase === 'FINISHED'
+  spawnButton.disabled = game.state.phase !== 'PLAYING'
+  updateHud()
+}
+
+function showCallout(text, now, duration = 750) {
+  setText(stateCallout, text)
+  stateCallout.hidden = false
+  stateCallout.classList.remove('pop')
+  void stateCallout.offsetWidth
+  stateCallout.classList.add('pop')
+  calloutUntil = now + duration
+}
+
+function processGameEvents(now) {
+  for (const event of game.drainEvents()) {
+    // All future audio cues can be attached here by event.type.
+    switch (event.type) {
+      case 'countdown-tick':
+        showCallout(String(event.number), now, 1050)
+        break
+      case 'round-start':
+        nextSpawnAt = now + FIRST_SPAWN_DELAY_MS
+        showCallout('SLASH!', now, 750)
+        syncPhaseUi()
+        setStatus('Show your hand and slash the targets')
+        break
+      case 'target-sliced':
+        floatingTexts.push({ ...event, at: now })
+        createParticles(event, now)
+        updateHud()
+        break
+      case 'combo-increase':
+      case 'combo-expired':
+        updateHud()
+        break
+      case 'final-15':
+        showCallout('FINAL 15!', now, 1050)
+        break
+      case 'new-high-score':
+        break
+      case 'round-finished':
+        targets.clearTargets()
+        slash.reset()
+        floatingTexts.length = 0
+        particles.length = 0
+        stateCallout.hidden = true
+        setText(finalScoreValue, NUMBER_FORMAT.format(game.state.score))
+        setText(finalSlicedValue, NUMBER_FORMAT.format(game.state.targetsSliced))
+        setText(finalComboValue, `x${game.state.bestCombo}`)
+        setText(highScoreValue, NUMBER_FORMAT.format(game.state.highScore))
+        newHighScoreMessage.hidden = !game.state.newHighScore
+        syncPhaseUi()
+        setStatus('Round complete')
+        break
+    }
+  }
+}
+
+function createParticles(event, now) {
+  const count = event.kind === 'golden' ? 10 : 6
+  for (let index = 0; index < count; index += 1) {
+    const angle = (index + Math.random() * 0.5) * Math.PI * 2 / count
+    const speed = 70 + Math.random() * 80
+    particles.push({ x: event.x, y: event.y, vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 25, at: now, golden: event.kind === 'golden' })
+  }
+}
+
+function drawEffects(now) {
+  for (const particle of particles) {
+    const age = (now - particle.at) / 1000
+    const fade = Math.max(0, 1 - (now - particle.at) / PARTICLE_MS)
+    context.beginPath()
+    context.arc(particle.x + particle.vx * age,
+      particle.y + particle.vy * age + 90 * age * age, particle.golden ? 3.5 : 2.8, 0, Math.PI * 2)
+    context.fillStyle = particle.golden
+      ? `rgba(240, 174, 45, ${fade})` : `rgba(40, 166, 207, ${fade})`
+    context.fill()
+  }
+  for (const feedback of floatingTexts) {
+    const age = (now - feedback.at) / FLOATING_TEXT_MS
+    context.save()
+    context.globalAlpha = Math.max(0, 1 - age)
+    context.font = `800 ${feedback.kind === 'golden' ? 30 : 26}px system-ui`
+    context.textAlign = 'center'
+    context.lineWidth = 4
+    context.strokeStyle = '#10263b'
+    context.fillStyle = feedback.kind === 'golden' ? '#ffe188' : '#fff'
+    const y = feedback.y - 30 - age * 34
+    context.strokeText(`+${feedback.points}`, feedback.x, y)
+    context.fillText(`+${feedback.points}`, feedback.x, y)
+    if (feedback.combo > 1) {
+      context.font = '700 17px system-ui'
+      context.strokeText(`x${feedback.combo}`, feedback.x, y + 21)
+      context.fillText(`x${feedback.combo}`, feedback.x, y + 21)
+    }
+    context.restore()
+  }
+}
+
+function updateEffects(now) {
+  while (floatingTexts.length && now - floatingTexts[0].at >= FLOATING_TEXT_MS) floatingTexts.shift()
+  while (particles.length && now - particles[0].at >= PARTICLE_MS) particles.shift()
+  if (!stateCallout.hidden && now >= calloutUntil) stateCallout.hidden = true
 }
 
 function updateDebug(now, force = false) {
@@ -149,28 +336,66 @@ function resizeCanvas() {
 }
 
 function drawTarget(target, now) {
+  if (!assets.targetIcon) return
   const effect = target.sliced ? Math.min(1, (now - target.slicedAt) / HIT_EFFECT_MS) : 0
-  const radius = target.radius * (1 + effect * 0.5)
+  const radius = target.radius
   context.save()
   context.globalAlpha = target.sliced ? 1 - effect : 1
-  context.beginPath()
-  context.arc(target.x, target.y, radius, 0, Math.PI * 2)
-  context.fillStyle = target.sliced ? '#fff4c7' : target.color
-  context.fill()
-  context.lineWidth = 4
-  context.strokeStyle = '#102136'
-  context.stroke()
-  if (target.sliced) {
+  if (target.kind === 'golden') {
+    context.save()
+    context.shadowColor = '#e6a527'
+    context.shadowBlur = 20 + Math.sin(now / 180) * 5
+    context.strokeStyle = 'rgba(255, 209, 83, 0.95)'
+    context.lineWidth = 3
     context.beginPath()
-    context.moveTo(target.x - radius * 0.65, target.y + radius * 0.65)
-    context.lineTo(target.x + radius * 0.65, target.y - radius * 0.65)
-    context.lineWidth = 5
+    context.arc(target.x, target.y, radius * 1.48 + Math.sin(now / 210) * 2, 0, Math.PI * 2)
+    context.stroke()
+    context.restore()
+    for (let index = 0; index < 4; index += 1) {
+      const angle = now / 950 + index * Math.PI / 2
+      const distance = radius * 1.64
+      const x = target.x + Math.cos(angle) * distance
+      const y = target.y + Math.sin(angle) * distance
+      context.beginPath()
+      context.arc(x, y, 2.5, 0, Math.PI * 2)
+      context.fillStyle = '#f8d066'
+      context.fill()
+    }
+  }
+  if (target.sliced) {
+    // Two clipped copies preserve the official image while the halves separate.
+    for (const side of [-1, 1]) {
+      context.save()
+      const direction = target.hitDirection ?? { x: 1, y: 0 }
+      context.translate(side * direction.x * effect * radius * 0.48,
+        side * direction.y * effect * radius * 0.48 + effect * radius * 0.18)
+      context.translate(target.x, target.y)
+      context.rotate(side * effect * 0.14)
+      context.translate(-target.x, -target.y)
+      const tangent = target.hitTangent ?? { x: 0, y: 1 }
+      const normal = target.hitDirection ?? { x: 1, y: 0 }
+      const span = radius * 3
+      context.beginPath()
+      context.moveTo(target.x - tangent.x * span, target.y - tangent.y * span)
+      context.lineTo(target.x + tangent.x * span, target.y + tangent.y * span)
+      context.lineTo(target.x + tangent.x * span + side * normal.x * span,
+        target.y + tangent.y * span + side * normal.y * span)
+      context.lineTo(target.x - tangent.x * span + side * normal.x * span,
+        target.y - tangent.y * span + side * normal.y * span)
+      context.closePath()
+      context.clip()
+      context.drawImage(assets.targetIcon, target.x - radius, target.y - radius,
+        radius * 2, radius * 2)
+      context.restore()
+    }
+    context.beginPath()
+    context.arc(target.x, target.y, radius * (0.8 + effect * 0.4), 0, Math.PI * 2)
+    context.lineWidth = 4 * (1 - effect)
+    context.strokeStyle = target.kind === 'golden' ? '#ffe28a' : '#e7faff'
     context.stroke()
   } else {
-    context.beginPath()
-    context.arc(target.x, target.y, 4, 0, Math.PI * 2)
-    context.fillStyle = '#102136'
-    context.fill()
+    context.drawImage(assets.targetIcon, target.x - radius, target.y - radius,
+      radius * 2, radius * 2)
   }
   context.restore()
 }
@@ -178,6 +403,7 @@ function drawTarget(target, now) {
 function drawScene(now) {
   context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
   for (const target of targets.state.targets) drawTarget(target, now)
+  drawEffects(now)
 
   if (showRawPath && !debugPanel.hidden) {
     context.lineCap = 'round'
@@ -269,7 +495,18 @@ function drawScene(now) {
 }
 
 function applySlashSegment(segment, now) {
-  if (segment && game.state.phase === 'running' && targets.hitWithSegment(segment, now).length) updateHud()
+  if (!segment || game.state.phase !== 'PLAYING') return
+  const hits = targets.hitWithSegment(segment, now)
+  if (!hits.length) return
+  const dx = segment.to.x - segment.from.x
+  const dy = segment.to.y - segment.from.y
+  const length = Math.hypot(dx, dy) || 1
+  for (const target of hits) {
+    target.hitDirection = { x: -dy / length, y: dx / length }
+    target.hitTangent = { x: dx / length, y: dy / length }
+    game.scoreTarget(target, now)
+  }
+  processGameEvents(now)
 }
 
 function processResult(result, now) {
@@ -368,15 +605,9 @@ function frame(activeSession) {
     const dtSeconds = lastFrameTime === null ? 0 : (now - lastFrameTime) / 1000
     lastFrameTime = now
 
-    if (game.update(now)) {
-      targets.clearTargets()
-      slash.reset()
-      roundMessage.hidden = false
-      startRoundButton.disabled = true
-      spawnButton.disabled = true
-      setStatus('Round complete')
-    }
-    if (game.state.phase === 'running') {
+    game.update(now)
+    processGameEvents(now)
+    if (game.canSpawn()) {
       targets.update(dtSeconds, now, canvas.clientWidth, canvas.clientHeight)
       if (now >= nextSpawnAt) {
         spawnWave(now)
@@ -398,7 +629,7 @@ function frame(activeSession) {
     applySlashSegment(slash.tick(renderNow), renderNow)
     if (slash.state.tracking !== 'DETECTED') {
       fingerDetected = false
-      if (game.state.phase !== 'ended') setStatus(slash.state.predictionActive
+      if (game.state.phase !== 'FINISHED') setStatus(slash.state.predictionActive
         ? 'Predicting slash…'
         : slash.state.tracking === 'GRACE' ? 'Tracking briefly lost…' : 'Show your hand')
     }
@@ -408,8 +639,10 @@ function frame(activeSession) {
     }
     updateHud()
     updateDebug(renderNow)
+    updateEffects(renderNow)
     const hasVisual = fingerDetected || slash.state.predictionActive
       || slash.state.trail.length > 0 || targets.state.targets.length > 0
+      || floatingTexts.length > 0 || particles.length > 0
       || (showRawPath && !debugPanel.hidden && (rawTrail.length > 0 || anchorTrail.length > 0))
     if (hasVisual || hadVisual) drawScene(renderNow)
     hadVisual = hasVisual
@@ -530,11 +763,10 @@ async function startCamera() {
     lastFrameTime = null
     detectionWindowStart = performance.now()
     detectionCount = 0
-    startRoundButton.disabled = false
     resetRoundButton.disabled = false
     spawnButton.disabled = true
     cameraOnButton.hidden = true
-    setStatus('Ready — press Start')
+    refreshRoundStart()
     updateDebug(performance.now(), true)
     animationFrameId = requestAnimationFrame(() => frame(activeSession))
   } catch (error) {
@@ -547,6 +779,10 @@ async function startCamera() {
 function resetRound() {
   game.reset()
   targets.reset()
+  floatingTexts.length = 0
+  particles.length = 0
+  stateCallout.hidden = true
+  calloutUntil = 0
   slash.reset()
   finger.reset()
   hand.reset()
@@ -555,12 +791,10 @@ function resetRound() {
   anchorTrail.length = 0
   rawFingerSpeed = 0
   nextSpawnAt = 0
-  roundMessage.hidden = true
-  startRoundButton.disabled = !handLandmarker
-  spawnButton.disabled = true
+  syncPhaseUi()
+  refreshRoundStart()
   updateHud()
   updateDebug(performance.now(), true)
-  if (handLandmarker) setStatus('Ready — press Start')
   drawScene(performance.now())
 }
 
@@ -592,10 +826,11 @@ function stopCamera(message = 'Camera off', isError = false) {
 }
 
 new ResizeObserver(resizeCanvas).observe(stage)
+preloadAssets()
 cameraOnButton.addEventListener('click', startCamera)
 cameraOffButton.addEventListener('click', () => stopCamera())
-startRoundButton.addEventListener('click', () => {
-  if (!handLandmarker || !game.start(performance.now())) return
+function beginRound() {
+  if (!handLandmarker || !assets.ready || !game.startCountdown(performance.now())) return
   targets.reset()
   slash.reset()
   finger.reset()
@@ -604,16 +839,20 @@ startRoundButton.addEventListener('click', () => {
   rawTrail.length = 0
   anchorTrail.length = 0
   rawFingerSpeed = 0
-  nextSpawnAt = performance.now() + FIRST_SPAWN_DELAY_MS
   startRoundButton.disabled = true
-  spawnButton.disabled = false
-  roundMessage.hidden = true
-  setStatus('Show your hand and slash the targets')
-  updateHud()
-})
+  syncPhaseUi()
+  processGameEvents(performance.now())
+  setStatus('Get ready')
+}
+startRoundButton.addEventListener('click', beginRound)
 resetRoundButton.addEventListener('click', resetRound)
+playAgainButton.addEventListener('click', () => {
+  if (!handLandmarker || !assets.ready) return
+  resetRound()
+  beginRound()
+})
 spawnButton.addEventListener('click', () => {
-  if (!handLandmarker || game.state.phase !== 'running') return
+  if (!handLandmarker || !game.canSpawn()) return
   targets.spawn(canvas.clientWidth, canvas.clientHeight, performance.now(), {
     predictable: true,
     activeLimit: MAX_ACTIVE_TARGETS,
