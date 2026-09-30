@@ -1,4 +1,5 @@
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
+import { createSlashTracker, TRACKING_LOSS_GRACE_MS, TRAIL_FADE_MS } from './slash.js'
 import './style.css'
 
 const WASM_ROOT = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
@@ -12,9 +13,13 @@ const startButton = document.querySelector('#start-camera')
 const stopButton = document.querySelector('#stop-camera')
 const status = document.querySelector('#status')
 const fpsValue = document.querySelector('#fps-value')
+const trackingState = document.querySelector('#tracking-state')
+const missingDuration = document.querySelector('#missing-duration')
+const bridgeIndicator = document.querySelector('#bridge-indicator')
 
 // x and y are CSS pixels within the mirrored camera stage.
 const finger = { x: 0, y: 0, detected: false }
+const slash = createSlashTracker()
 
 let stream = null
 let handLandmarker = null
@@ -41,29 +46,57 @@ function resizeCanvas() {
   canvas.height = Math.round(height * pixelRatio)
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
 
-  if (finger.detected && displayWidth && displayHeight) {
-    finger.x *= width / displayWidth
-    finger.y *= height / displayHeight
-    drawFinger()
+  if (displayWidth && displayHeight && (width !== displayWidth || height !== displayHeight)) {
+    // A resize changes display coordinates. Start fresh rather than making a false segment.
+    slash.reset()
+    finger.detected = false
   }
   displayWidth = width
   displayHeight = height
+  drawTracking(performance.now())
 }
 
-function drawFinger() {
+function drawTracking(now) {
   context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
-  if (!finger.detected) return
 
+  for (const segment of slash.state.trail) {
+    const opacity = Math.max(0, 1 - (now - segment.at) / TRAIL_FADE_MS)
+    context.beginPath()
+    context.moveTo(segment.from.x, segment.from.y)
+    context.lineTo(segment.to.x, segment.to.y)
+    context.lineWidth = 7
+    context.lineCap = 'round'
+    context.strokeStyle = segment.bridged
+      ? `rgba(255, 213, 133, ${opacity})`
+      : `rgba(135, 220, 206, ${opacity})`
+    context.stroke()
+  }
+
+  const graceOpacity = slash.state.tracking === 'GRACE' && slash.state.lastReliableAt !== null
+    ? Math.max(0, 1 - (now - slash.state.lastReliableAt) / TRACKING_LOSS_GRACE_MS)
+    : 0
+  const dotOpacity = finger.detected ? 1 : graceOpacity
+  const dot = finger.detected ? finger : slash.state.lastReliablePoint
+  if (!dot || dotOpacity <= 0) return
+
+  context.globalAlpha = dotOpacity
   context.beginPath()
-  context.arc(finger.x, finger.y, 13, 0, Math.PI * 2)
+  context.arc(dot.x, dot.y, 13, 0, Math.PI * 2)
   context.fillStyle = '#87dcce'
   context.fill()
   context.lineWidth = 3
   context.strokeStyle = '#102136'
   context.stroke()
+  context.globalAlpha = 1
 }
 
-function processResult(result) {
+function updateTrackingDebug(now) {
+  trackingState.textContent = slash.state.tracking
+  missingDuration.textContent = slash.state.missingForMs
+  bridgeIndicator.hidden = slash.state.tracking !== 'DETECTED' || now >= slash.state.bridgedUntil
+}
+
+function processResult(result, now) {
   const tip = result.landmarks[0]?.[8]
   finger.detected = Boolean(tip)
 
@@ -72,12 +105,12 @@ function processResult(result) {
     // This keeps the drawn cursor and reusable display coordinates aligned.
     finger.x = (1 - tip.x) * canvas.clientWidth
     finger.y = tip.y * canvas.clientHeight
+    slash.detected({ x: finger.x, y: finger.y }, now, Math.hypot(canvas.clientWidth, canvas.clientHeight))
     setStatus('Hand detected')
   } else {
-    setStatus('Show your hand')
+    slash.missing(now)
+    setStatus(slash.state.tracking === 'GRACE' ? 'Tracking briefly lost...' : 'Show your hand')
   }
-
-  drawFinger()
 }
 
 function updateFps(now) {
@@ -94,13 +127,18 @@ function trackingLoop(activeSession) {
   if (activeSession !== sessionId || !handLandmarker) return
 
   try {
+    const now = performance.now()
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
-      const now = performance.now()
       const result = handLandmarker.detectForVideo(video, now)
       lastVideoTime = video.currentTime
-      processResult(result)
+      processResult(result, now)
       updateFps(now)
     }
+    slash.tick(now)
+    if (slash.state.tracking === 'LOST') finger.detected = false
+    if (!finger.detected && slash.state.tracking === 'LOST') setStatus('Show your hand')
+    updateTrackingDebug(now)
+    drawTracking(now)
   } catch (error) {
     console.error('Hand tracking failed:', error)
     stopCamera('Hand tracking stopped. Please try again.', true)
@@ -258,13 +296,15 @@ function stopCamera(message = 'Camera off', isError = false) {
   video.pause()
   video.srcObject = null
   stage.classList.remove('is-active')
+  slash.reset()
   finger.x = 0
   finger.y = 0
   finger.detected = false
   lastVideoTime = -1
   frameCount = 0
   fpsValue.textContent = '0'
-  drawFinger()
+  updateTrackingDebug(performance.now())
+  drawTracking(performance.now())
   startButton.disabled = false
   stopButton.disabled = true
   setStatus(message, isError)

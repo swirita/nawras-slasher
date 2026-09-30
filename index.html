@@ -24,7 +24,12 @@
         </div>
         <div class="readouts">
           <p id="status" class="status" role="status" aria-live="polite">Camera off</p>
-          <p class="fps">Tracking: <span id="fps-value">0</span> FPS</p>
+          <p class="fps">Detection: <span id="fps-value">0</span> FPS</p>
+        </div>
+        <div class="tracking-debug" aria-label="Tracking debug information">
+          <span>Tracking: <strong id="tracking-state">LOST</strong></span>
+          <span>Missing for: <strong id="missing-duration">0</strong> ms</span>
+          <strong id="bridge-indicator" class="bridge-indicator" hidden>BRIDGED</strong>
         </div>
       </section>
     </main>
