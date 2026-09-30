@@ -12,6 +12,10 @@ import { createAudioSystem, soundCueForEvent } from './audio.js'
 import { displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
 import { REQUIRED_ASSETS, TECH_TARGETS, TECH_TARGET_BY_ID } from './catalog.js'
 import { containedImageRect, sliceClipPolygon } from './rendering.js'
+import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
+import { createDeveloperUi } from './developer-ui.js'
+import { resetPlayerTracking } from './player-state.js'
+import { createReplayFlow } from './replay.js'
 import './style.css'
 
 const WASM_ROOT = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
@@ -34,8 +38,10 @@ const startRoundButton = document.querySelector('#start-round')
 const resetRoundButton = document.querySelector('#reset-round')
 const spawnButton = document.querySelector('#spawn-target')
 const targetTypeSelect = document.querySelector('#target-type')
-const debugToggle = document.querySelector('#debug-toggle')
 const debugPanel = document.querySelector('#debug-panel')
+const cameraError = document.querySelector('#camera-error')
+const cameraErrorText = document.querySelector('#camera-error-text')
+const cameraRetryButton = document.querySelector('#camera-retry')
 const roundMessage = document.querySelector('#round-message')
 const app = document.querySelector('.app')
 const stateCallout = document.querySelector('#state-callout')
@@ -82,10 +88,18 @@ const targets = createTargetSystem()
 const game = createGameSession()
 const audio = createAudioSystem()
 const assets = { ready: false, error: null, images: new Map() }
+const developerUi = createDeveloperUi(debugPanel)
+const camera = createCameraSession({
+  video,
+  getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
+  onUnexpectedEnd: () => handleCameraLoss(),
+})
 
-let stream = null
 let handLandmarker = null
 let animationFrameId = null
+let cameraStartPromise = null
+let retryContext = 'initial'
+let mouseIdleTimer = null
 let sessionId = 0
 let lastVideoTime = -1
 let lastFrameTime = null
@@ -120,8 +134,8 @@ function setStatus(message, isError = false) {
     message = 'A game image could not load. Refresh to try again.'
     isError = true
   }
-  if (game.state.phase === 'FINISHED' && !isError) message = 'Round complete'
   setText(status, message)
+  status.hidden = !message
   status.classList.toggle('error', isError)
 }
 
@@ -144,9 +158,10 @@ function preloadImage(url) {
 }
 
 function refreshRoundStart() {
-  startRoundButton.disabled = !handLandmarker || !assets.ready || game.state.phase !== 'READY'
+  startRoundButton.disabled = !camera.state.active || !handLandmarker || !assets.ready
+    || game.state.phase !== 'READY'
   syncPhaseUi()
-  if (handLandmarker && game.state.phase === 'READY') {
+  if (camera.state.active && handLandmarker && game.state.phase === 'READY') {
     setStatus(assets.ready ? 'Ready — press Start' : 'Loading game images…')
   }
 }
@@ -197,13 +212,30 @@ function updateHud() {
   }
 }
 
+function clearMouseIdle() {
+  if (mouseIdleTimer !== null) clearTimeout(mouseIdleTimer)
+  mouseIdleTimer = null
+  app.classList.remove('cursor-idle')
+}
+
+function armMouseIdle() {
+  clearMouseIdle()
+  if (game.state.phase !== 'PLAYING') return
+  mouseIdleTimer = setTimeout(() => {
+    if (game.state.phase === 'PLAYING') app.classList.add('cursor-idle')
+    mouseIdleTimer = null
+  }, 1700)
+}
+
 function syncPhaseUi() {
   app.dataset.phase = game.state.phase
   readyBrand.hidden = game.state.phase !== 'READY'
   roundMessage.hidden = game.state.phase !== 'FINISHED'
-  startRoundButton.hidden = game.state.phase !== 'READY' || !handLandmarker
+  startRoundButton.hidden = game.state.phase !== 'READY' || !camera.state.active || !handLandmarker
   resetRoundButton.hidden = game.state.phase === 'READY' || game.state.phase === 'FINISHED'
-  spawnButton.disabled = game.state.phase !== 'PLAYING'
+  spawnButton.disabled = game.state.phase !== 'PLAYING' || !camera.state.active
+  if (game.state.phase === 'PLAYING') armMouseIdle()
+  else clearMouseIdle()
   updateHud()
 }
 
@@ -257,8 +289,6 @@ function processGameEvents(now) {
       case 'round-finished':
         targets.clearTargets()
         slash.reset()
-        floatingTexts.length = 0
-        particles.length = 0
         stateCallout.hidden = true
         resultShownAt = now
         roundMessage.classList.remove('settled')
@@ -269,7 +299,10 @@ function processGameEvents(now) {
         setText(finalComboValue, `x${summary.bestCombo}`)
         newHighScoreMessage.hidden = true
         syncPhaseUi()
-        setStatus('Round complete')
+        setStatus('')
+        stage.classList.add('camera-fading')
+        camera.scheduleRelease(() => releaseCamera({ keepScreen: true, keepLoop: true }),
+          FINISHED_CAMERA_RELEASE_MS)
         break
     }
   }
@@ -758,7 +791,9 @@ function frame(activeSession) {
       }
     }
 
-    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
+    if (camera.state.active && game.state.phase !== 'FINISHED'
+      && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+      && video.currentTime !== lastVideoTime) {
       const detectionStart = performance.now()
       const result = handLandmarker.detectForVideo(video, detectionStart)
       lastVideoTime = video.currentTime
@@ -792,10 +827,14 @@ function frame(activeSession) {
     hadVisual = hasVisual
   } catch (error) {
     console.error('Tracking/game loop failed:', error)
-    stopCamera('Tracking stopped. Please try again.', true)
+    handleCameraLoss(error)
     return
   }
-  if (activeSession === sessionId) animationFrameId = requestAnimationFrame(() => frame(activeSession))
+  const finishAnimationPending = game.state.phase === 'FINISHED' && resultShownAt !== null
+    && performance.now() - resultShownAt < RESULT_COUNTUP_MS + 60
+  if (activeSession === sessionId && (camera.state.active || finishAnimationPending)) {
+    animationFrameId = requestAnimationFrame(() => frame(activeSession))
+  } else animationFrameId = null
 }
 
 async function initializeHandTracker() {
@@ -847,33 +886,92 @@ function cameraErrorMessage(error) {
   switch (error.name) {
     case 'NotAllowedError':
     case 'PermissionDeniedError':
-      return 'Camera permission was denied. Allow camera access and try again.'
+      return 'CAMERA ACCESS IS NEEDED TO PLAY'
     case 'NotFoundError':
     case 'DevicesNotFoundError':
-      return 'No camera was found. Connect a webcam and try again.'
+      return 'NO CAMERA FOUND'
     case 'NotReadableError':
     case 'TrackStartError':
-      return 'The camera is unavailable. Close other apps using it and try again.'
+      return 'CAMERA UNAVAILABLE'
     default:
-      return 'Could not start the camera. Please check your webcam and try again.'
+      return 'CAMERA UNAVAILABLE'
   }
 }
 
-async function startCamera() {
-  if (cameraOnButton.disabled) return
+function showCameraError(message, context) {
+  retryContext = context
+  setText(cameraErrorText, message)
+  cameraError.hidden = false
+  cameraRetryButton.disabled = false
+  setStatus('')
+}
+
+function clearTrackingState() {
+  resetPlayerTracking({ finger, hand, slash, rawTrail, anchorTrail })
+  fingerDetected = false
+  rawFingerSpeed = 0
+  lastVideoTime = -1
+  lastFrameTime = null
+  detectionCount = 0
+  detectionWindowStart = 0
+  averageDetectMs = 0
+  hadVisual = false
+  setText(fpsValue, 0)
+}
+
+function releaseCamera({ keepScreen = false, keepLoop = false } = {}) {
+  if (!keepLoop) {
+    sessionId += 1
+    if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
+    animationFrameId = null
+  }
+  cancelMetadataWait?.()
+  camera.release()
+  stage.classList.remove('is-active', 'camera-fading')
+  clearTrackingState()
+  cameraOnButton.hidden = keepScreen
+  cameraOnButton.disabled = false
+  cameraOffButton.hidden = true
+  startRoundButton.disabled = true
+  resetRoundButton.disabled = true
+  spawnButton.disabled = true
+  if (keepScreen) {
+    syncPhaseUi()
+    setStatus('')
+  } else {
+    resetRound()
+    setStatus('')
+  }
+}
+
+function handleCameraLoss(error = null) {
+  if (error) console.error('Camera/tracking stream stopped:', error)
+  if (game.state.phase === 'FINISHED') {
+    releaseCamera({ keepScreen: true, keepLoop: true })
+    return
+  }
+  const interrupted = game.abort()
+  releaseCamera({ keepScreen: interrupted })
+  showCameraError('CAMERA UNAVAILABLE', interrupted ? 'replay' : 'initial')
+}
+
+function startCamera() {
+  if (cameraStartPromise) return cameraStartPromise
+  if (camera.state.active) return Promise.resolve(true)
   void audio.unlock().then(updateSoundButton)
   if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus('Camera access requires HTTPS or localhost in a supported browser.', true)
-    return
+    console.error('getUserMedia is unavailable; camera access needs HTTPS or localhost and browser support.')
+    showCameraError('CAMERA ACCESS IS NEEDED TO PLAY', retryContext)
+    return Promise.resolve(false)
   }
   const activeSession = ++sessionId
   cameraOnButton.disabled = true
-  cameraOffButton.hidden = false
-  setStatus('Requesting camera…')
+  cameraRetryButton.disabled = true
+  setStatus('Starting camera…')
 
-  try {
+  cameraStartPromise = (async () => {
     try {
-      const cameraStream = await navigator.mediaDevices.getUserMedia({
+      const acquired = await camera.acquire({
         audio: false,
         video: {
           facingMode: 'user',
@@ -881,44 +979,47 @@ async function startCamera() {
           height: { ideal: 480 },
           frameRate: { ideal: 30, max: 30 },
         },
+      }, async () => {
+        await waitForVideoMetadata()
+        await video.play()
+        if (!video.videoWidth || !video.videoHeight) throw new Error('Camera video has no dimensions')
       })
-      if (activeSession !== sessionId) {
-        cameraStream.getTracks().forEach((track) => track.stop())
-        return
+      if (!acquired || activeSession !== sessionId) return false
+      stage.classList.add('is-active')
+      stage.classList.remove('camera-fading')
+      resizeCanvas()
+      if (!handLandmarker) {
+        setStatus('Loading hand tracker…')
+        const tracker = await initializeHandTracker()
+        if (activeSession !== sessionId) { tracker.close(); return false }
+        handLandmarker = tracker
       }
-      stream = cameraStream
+      lastVideoTime = -1
+      lastFrameTime = null
+      detectionWindowStart = performance.now()
+      detectionCount = 0
+      resetRoundButton.disabled = false
+      spawnButton.disabled = true
+      cameraOffButton.hidden = false
+      cameraOnButton.hidden = true
+      refreshRoundStart()
+      cameraError.hidden = true
+      updateDebug(performance.now(), true)
+      if (animationFrameId === null) animationFrameId = requestAnimationFrame(() => frame(activeSession))
+      return true
     } catch (error) {
-      console.error('Camera access failed:', error)
-      throw new Error(cameraErrorMessage(error))
+      if (activeSession !== sessionId) return false
+      console.error('Camera/tracker startup failed:', error)
+      const context = game.state.phase === 'FINISHED' || game.state.phase === 'INTERRUPTED'
+        ? 'replay' : 'initial'
+      releaseCamera({ keepScreen: context === 'replay' })
+      showCameraError(cameraErrorMessage(error), context)
+      return false
+    } finally {
+      cameraStartPromise = null
     }
-
-    video.srcObject = stream
-    await waitForVideoMetadata()
-    if (activeSession !== sessionId) return
-    await video.play()
-    if (activeSession !== sessionId) return
-    stage.classList.add('is-active')
-    resizeCanvas()
-    setStatus('Loading hand tracker…')
-
-    const tracker = await initializeHandTracker()
-    if (activeSession !== sessionId) { tracker.close(); return }
-    handLandmarker = tracker
-    lastVideoTime = -1
-    lastFrameTime = null
-    detectionWindowStart = performance.now()
-    detectionCount = 0
-    resetRoundButton.disabled = false
-    spawnButton.disabled = true
-    cameraOnButton.hidden = true
-    refreshRoundStart()
-    updateDebug(performance.now(), true)
-    animationFrameId = requestAnimationFrame(() => frame(activeSession))
-  } catch (error) {
-    if (activeSession !== sessionId) return
-    console.error('Camera/tracker startup failed:', error)
-    stopCamera(error.message, true)
-  }
+  })()
+  return cameraStartPromise
 }
 
 function resetRound() {
@@ -933,13 +1034,7 @@ function resetRound() {
   particles.length = 0
   stateCallout.hidden = true
   calloutUntil = 0
-  slash.reset()
-  finger.reset()
-  hand.reset()
-  fingerDetected = false
-  rawTrail.length = 0
-  anchorTrail.length = 0
-  rawFingerSpeed = 0
+  clearTrackingState()
   nextSpawnAt = 0
   syncPhaseUi()
   refreshRoundStart()
@@ -948,48 +1043,23 @@ function resetRound() {
   drawScene(performance.now())
 }
 
-function stopCamera(message = 'Camera off', isError = false) {
-  sessionId += 1
-  cancelMetadataWait?.()
-  if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
-  animationFrameId = null
-  try { handLandmarker?.close() } catch (error) { console.error('Could not close Hand Landmarker:', error) }
-  handLandmarker = null
-  stream?.getTracks().forEach((track) => track.stop())
-  stream = null
-  video.pause()
-  video.srcObject = null
-  stage.classList.remove('is-active')
-  resetRound()
-  lastVideoTime = -1
-  lastFrameTime = null
-  hadVisual = false
-  setText(fpsValue, 0)
-  averageDetectMs = 0
-  cameraOnButton.hidden = false
-  cameraOnButton.disabled = false
-  cameraOffButton.hidden = true
-  startRoundButton.disabled = true
-  resetRoundButton.disabled = true
-  spawnButton.disabled = true
-  setStatus(message, isError)
-}
-
 new ResizeObserver(resizeCanvas).observe(stage)
 syncPhaseUi()
 updateSoundButton()
 preloadAssets()
-cameraOnButton.addEventListener('click', startCamera)
-cameraOffButton.addEventListener('click', () => stopCamera())
+cameraOnButton.addEventListener('click', () => { retryContext = 'initial'; void startCamera() })
+cameraOffButton.addEventListener('click', () => releaseCamera())
 async function beginRound() {
-  if (beginningRound || !handLandmarker || !assets.ready || game.state.phase !== 'READY') return
+  if (beginningRound || !camera.state.active || !handLandmarker || !assets.ready
+    || game.state.phase !== 'READY') return
   beginningRound = true
   const requestId = roundRequestId
   startRoundButton.disabled = true
   await audio.unlock()
   updateSoundButton()
   beginningRound = false
-  if (requestId !== roundRequestId || !handLandmarker || !game.startCountdown(performance.now())) return
+  if (requestId !== roundRequestId || !camera.state.active || !handLandmarker
+    || !game.startCountdown(performance.now())) return
   targets.reset()
   slash.reset()
   finger.reset()
@@ -1005,10 +1075,41 @@ async function beginRound() {
 }
 startRoundButton.addEventListener('click', beginRound)
 resetRoundButton.addEventListener('click', resetRound)
-playAgainButton.addEventListener('click', () => {
-  if (!handLandmarker || !assets.ready) return
-  resetRound()
-  beginRound()
+const replayFlow = createReplayFlow({
+  canReplay: () => !cameraStartPromise && handLandmarker && assets.ready
+    && ['FINISHED', 'INTERRUPTED'].includes(game.state.phase),
+  prepareCamera: () => {
+    retryContext = 'replay'
+    cameraError.hidden = true
+    if (game.state.phase === 'FINISHED') {
+      setText(finalScoreValue, NUMBER_FORMAT.format(game.state.score))
+      roundMessage.classList.add('settled')
+      newHighScoreMessage.hidden = !game.state.newHighScore
+    }
+    releaseCamera({ keepScreen: true })
+    return startCamera()
+  },
+  resetRound,
+  beginRound,
+  onLoading: (loading) => {
+    playAgainButton.disabled = loading
+    setText(playAgainButton, loading ? 'STARTING CAMERA...' : 'PLAY AGAIN')
+  },
+  onFailure: (error) => {
+    console.error('Replay startup failed:', error)
+    showCameraError('CAMERA UNAVAILABLE', 'replay')
+  },
+})
+playAgainButton.addEventListener('click', () => { void replayFlow.replay() })
+cameraRetryButton.addEventListener('click', async () => {
+  if (cameraStartPromise || replayFlow.state.pending) return
+  cameraRetryButton.disabled = true
+  if (retryContext === 'replay') {
+    await replayFlow.replay()
+  } else {
+    cameraError.hidden = true
+    await startCamera()
+  }
 })
 soundButton.addEventListener('click', () => {
   const on = audio.setEnabled(!audio.state.enabled)
@@ -1036,11 +1137,14 @@ const goldenTestOption = document.createElement('option')
 goldenTestOption.value = 'golden'
 goldenTestOption.textContent = 'Golden Nawras'
 targetTypeSelect.append(goldenTestOption)
-debugToggle.addEventListener('click', () => {
-  debugPanel.hidden = !debugPanel.hidden
-  debugToggle.setAttribute('aria-expanded', String(!debugPanel.hidden))
-  updateDebug(performance.now(), true)
+document.addEventListener('keydown', (event) => {
+  if (developerUi.handleKeydown(event)) updateDebug(performance.now(), true)
 })
+document.addEventListener('pointermove', () => {
+  if (game.state.phase === 'PLAYING') armMouseIdle()
+})
+app.addEventListener('dragstart', (event) => event.preventDefault())
+for (const image of app.querySelectorAll('img')) image.draggable = false
 rawPathToggle.addEventListener('click', () => {
   showRawPath = !showRawPath
   rawPathToggle.setAttribute('aria-pressed', String(showRawPath))

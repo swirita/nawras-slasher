@@ -192,8 +192,16 @@ export function createGameSession() {
     events.length = 0
   }
 
+  function abort() {
+    if (state.phase !== 'PLAYING' && state.phase !== 'COUNTDOWN') return false
+    state.phase = 'INTERRUPTED'
+    state.combo = 1
+    events.length = 0
+    return true
+  }
+
   function drainEvents() { return events.splice(0) }
   function canSpawn() { return state.phase === 'PLAYING' }
 
-  return { state, startCountdown, update, scoreTarget, reset, drainEvents, canSpawn }
+  return { state, startCountdown, update, scoreTarget, reset, abort, drainEvents, canSpawn }
 }

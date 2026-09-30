@@ -22,13 +22,14 @@ Camera access needs browser permission and HTTPS or localhost. The Hand Landmark
 
 ## Controls
 
-- **ENABLE CAMERA / CAMERA OFF:** start or release the webcam. Camera permission is requested only after ENABLE CAMERA is clicked.
+- **ENABLE CAMERA:** request the webcam only after a player clicks it. The camera fades out over 400 ms when the round ends and all stream tracks are stopped 700 ms after TIME'S UP.
 - **START GAME:** show a 3, 2, 1 countdown; the 90-second timer and target spawning begin at SLASH!
 - The Start button becomes available after the camera tracker and all eleven local images load. If an image fails, the status shows an error and gameplay stays disabled.
-- **RESET:** return to READY with a fresh score, timer, combo, and target state while keeping the camera running.
-- **PLAY AGAIN:** after time runs out, reset round state and start another countdown without reloading the webcam or tracker. The session high score remains until page refresh.
+- **PLAY AGAIN:** reacquire the webcam, wait for video and tracking readiness, reset player and round state, then start the countdown automatically. No extra camera/start click is needed. A failed request keeps the result and shows TRY AGAIN. The session high score remains until page refresh.
 - **SOUND ON / SOUND OFF:** toggle synthesized arcade cues. The choice lasts for the current page session. Master volume is 0.52. Audio starts only after a user interaction and gracefully falls silent if Web Audio is unavailable.
-- **Debug:** show finger/hand speed, hand direction stability, slash arming, prediction, last hit identity, and a target selector with a manual Spawn Test Target button. The tracking overlay compares the raw fingertip, processed fingertip, hand anchor/path, and gameplay slash. The Motion source button switches between **HYBRID** (default) and **FINGER ONLY** for physical comparison; switching clears movement history safely.
+- **Ctrl + Shift + D:** toggle the hidden developer panel. It starts hidden on every page load. The panel contains manual Camera Off and Reset Round controls, finger/hand diagnostics, target selection and test spawning, tracking overlays, and the HYBRID/FINGER ONLY comparison. These controls do not appear in the normal event interface.
+
+The already loaded MediaPipe model, images, audio system, sound preference, and in-memory high score remain available between players. Only the physical MediaStream and transient player/round state are released or reset. During gameplay, the system mouse cursor hides after 1.7 seconds without pointer movement and reappears when the pointer moves.
 
 ## Tracking and gameplay notes
 

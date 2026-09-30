@@ -30,8 +30,7 @@
           <div id="timer-stat" class="hud-stat"><span>Time</span><strong id="timer">01:30</strong></div>
         </div>
         <div class="hud-right">
-          <p id="status" class="status" role="status" aria-live="polite">Camera off</p>
-          <button id="debug-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="debug-panel">Debug</button>
+          <p id="status" class="status" role="status" aria-live="polite"></p>
         </div>
       </header>
 
@@ -63,6 +62,8 @@
           <option value="random">Random</option>
         </select>
         <button id="spawn-target" class="debug-spawn" type="button" disabled>Spawn Test Target</button>
+        <button id="reset-round" class="debug-spawn" type="button" disabled>Reset Round</button>
+        <button id="stop-camera" class="debug-spawn" type="button" hidden>Camera Off</button>
       </aside>
 
       <div id="combo-indicator" class="combo-indicator" hidden></div>
@@ -80,12 +81,14 @@
         <p id="new-high-score" class="new-high-score" hidden>✦ NEW HIGH SCORE ✦</p>
         <button id="play-again" type="button">PLAY AGAIN</button>
       </div>
+      <div id="camera-error" class="camera-error" role="alert" hidden>
+        <p id="camera-error-text">CAMERA UNAVAILABLE</p>
+        <button id="camera-retry" class="primary-button" type="button">TRY AGAIN</button>
+      </div>
 
       <footer class="controls">
         <button id="start-camera" class="primary-button" type="button">ENABLE CAMERA</button>
-        <button id="stop-camera" type="button" hidden>CAMERA OFF</button>
         <button id="start-round" class="primary-button" type="button" disabled>START GAME</button>
-        <button id="reset-round" type="button" disabled>RESET</button>
         <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true">SOUND ON</button>
       </footer>
     </main>

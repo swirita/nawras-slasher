@@ -158,3 +158,18 @@ test('Play Again resets round state and preserves the best score in page memory'
   assert.equal(game.state.highScore, 70)
   assert.equal(game.state.newHighScore, false)
 })
+
+test('camera interruption freezes gameplay without scoring or spawning', () => {
+  const game = createGameSession()
+  const now = startPlaying(game)
+  game.scoreTarget(target(1), now + 10)
+  game.update(now + 1000)
+  const remaining = game.state.remainingMs
+  assert.equal(game.abort(), true)
+  assert.equal(game.state.phase, 'INTERRUPTED')
+  assert.equal(game.canSpawn(), false)
+  assert.equal(game.scoreTarget(target(2), now + 1100), null)
+  game.update(now + 5000)
+  assert.equal(game.state.remainingMs, remaining)
+  assert.equal(game.state.score, 10)
+})
