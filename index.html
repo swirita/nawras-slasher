@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#101829" />
-    <meta name="description" content="Nawras Slasher browser game setup screen" />
+    <meta name="description" content="Nawras Slasher hand tracking prototype" />
     <title>Nawras Slasher</title>
   </head>
   <body>
@@ -12,9 +12,20 @@
       <section class="card" aria-labelledby="app-title">
         <p class="eyebrow">NawrasEdu</p>
         <h1 id="app-title">Nawras Slasher</h1>
-        <p class="description">A new browser game is on its way.</p>
-        <button id="start-camera" type="button">Start Camera</button>
-        <p id="status" class="status" role="status" aria-live="polite">Camera support is coming next.</p>
+        <p class="description">Show your hand to the camera and point with your index finger.</p>
+        <div id="camera-stage" class="camera-stage">
+          <video id="camera-video" autoplay muted playsinline aria-label="Mirrored webcam feed"></video>
+          <canvas id="tracking-canvas" aria-label="Index fingertip cursor"></canvas>
+          <p class="camera-placeholder">Camera preview</p>
+        </div>
+        <div class="controls">
+          <button id="start-camera" type="button">Start Camera</button>
+          <button id="stop-camera" type="button" disabled>Stop Camera</button>
+        </div>
+        <div class="readouts">
+          <p id="status" class="status" role="status" aria-live="polite">Camera off</p>
+          <p class="fps">Tracking: <span id="fps-value">0</span> FPS</p>
+        </div>
       </section>
     </main>
     <script type="module" src="/src/main.js"></script>
