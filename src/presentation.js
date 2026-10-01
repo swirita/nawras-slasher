@@ -1,3 +1,9 @@
+import { MAX_SCORE_MULTIPLIER } from './game.js'
+
+export function comboPresentation(combo) {
+  return `COMBO ${combo}${combo >= MAX_SCORE_MULTIPLIER ? '\n×5 MAX' : ''}`
+}
+
 export const RESULT_COUNTUP_MS = 850
 
 export const CALLOUT_EXIT_MS = Object.freeze({

@@ -9,7 +9,7 @@ import {
 import { createTargetSystem, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS, MAX_ACTIVE_TARGETS } from './targets.js'
 import { createGameSession, difficultyAt, formatTime } from './game.js'
 import { createAudioSystem, soundCueForEvent } from './audio.js'
-import { calloutPhaseAt, displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
+import { calloutPhaseAt, comboPresentation, displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
 import { REQUIRED_ASSETS, TECH_TARGETS, TECH_TARGET_BY_ID } from './catalog.js'
 import { containedImageRect, sliceClipPolygon } from './rendering.js'
 import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
@@ -332,14 +332,14 @@ function updateHud() {
   const showCombo = game.state.phase === 'PLAYING' && game.state.combo > 1
   if (comboIndicator.hidden !== !showCombo) comboIndicator.hidden = !showCombo
   if (showCombo) {
-    const next = `x${game.state.combo} COMBO${game.state.combo === 5 ? '!' : ''}`
+    const next = comboPresentation(game.state.combo)
     if (comboIndicator.textContent !== next) {
       setText(comboIndicator, next)
       comboIndicator.classList.remove('bump')
       void comboIndicator.offsetWidth
       comboIndicator.classList.add('bump')
     }
-    comboIndicator.dataset.level = String(game.state.combo)
+    comboIndicator.dataset.level = String(game.state.scoreMultiplier)
   }
 }
 
@@ -443,7 +443,7 @@ function processGameEvents(now) {
         setText(finalScoreValue, '0')
         const summary = resultSummary(game.state)
         setText(finalSlicedValue, NUMBER_FORMAT.format(summary.sliced))
-        setText(finalComboValue, `x${summary.bestCombo}`)
+        setText(finalComboValue, String(summary.bestCombo))
         newHighScoreMessage.hidden = true
         syncPhaseUi()
         finishedIdle.start()
@@ -510,8 +510,8 @@ function drawEffects(now) {
     context.fillText(`+${feedback.points}`, feedback.x, y)
     if (feedback.combo > 1) {
       context.font = '700 17px system-ui'
-      context.strokeText(`x${feedback.combo}`, feedback.x, y + 21)
-      context.fillText(`x${feedback.combo}`, feedback.x, y + 21)
+      context.strokeText(`×${feedback.scoreMultiplier}`, feedback.x, y + 21)
+      context.fillText(`×${feedback.scoreMultiplier}`, feedback.x, y + 21)
     }
     context.restore()
   }

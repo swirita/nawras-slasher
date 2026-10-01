@@ -8,6 +8,23 @@ const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
 const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
 
+test('player actions keep their primary hierarchy and shared CSS interactions', () => {
+  for (const id of ['player-entry-start', 'start-camera', 'start-round', 'play-again', 'camera-retry']) {
+    assert.match(html, new RegExp(`<button id="${id}" class="primary-button"`))
+  }
+  assert.match(html, /id="start-camera"[^>]*>ENABLE CAMERA/)
+  assert.match(html, /id="start-round"[^>]*disabled>START GAME/)
+  assert.doesNotMatch(html, /id="(?:reset-game|new-player|change-player)"[^>]*primary-button/)
+  assert.match(css, /@media \(hover: hover\)/)
+  assert.match(css, /button:not\(:disabled\):hover[^}]*translateY\(-2px\)/)
+  assert.match(css, /button:not\(:disabled\):active[^}]*scale\(0\.98\)[^}]*100ms/)
+  assert.match(css, /button:focus-visible[^}]*#2ca9c9/)
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*button:not\(:disabled\):hover, button:not\(:disabled\):active \{ transform: none; \}/)
+  assert.match(main, /comboPresentation\(game\.state\.combo\)/)
+  assert.match(main, /setText\(finalComboValue, String\(summary\.bestCombo\)\)/)
+  assert.match(main, /feedback\.scoreMultiplier/)
+})
+
 test('gameplay header keeps Score, centered NawrasEdu asset, and Time', () => {
   assert.equal(WORDMARK_ASSET, 'assets/nawras-name.png')
   const header = html.match(/<header class="hud">([\s\S]*?)<\/header>/)?.[1]

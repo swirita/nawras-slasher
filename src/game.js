@@ -4,7 +4,9 @@ import { WEB_RUSH_CONFIG } from './web-rush.js'
 export const GAME_DURATION_MS = 90000
 export const COUNTDOWN_MS = 3000
 export const COMBO_WINDOW_MS = 2000
-export const MAX_COMBO = 5
+export const MAX_SCORE_MULTIPLIER = 5
+// Compatibility for existing consumers: this cap applies to scoring, not streaks.
+export const MAX_COMBO = MAX_SCORE_MULTIPLIER
 export const GOLDEN_POINTS = 50
 export const FINAL_WARNING_MS = 15000
 export const INITIAL_SPAWN_INTERVAL_MS = 3400
@@ -88,6 +90,7 @@ export function createGameSession() {
     phase: 'READY', elapsedMs: 0, remainingMs: GAME_DURATION_MS,
     countdownStartedAt: null, countdownNumber: null, startedAt: null,
     score: 0, targetsSliced: 0, combo: 1, bestCombo: 1,
+    get scoreMultiplier() { return Math.min(this.combo, MAX_SCORE_MULTIPLIER) },
     lastHitAt: null, highScore: 0, newHighScore: false,
     webRushTriggered: false, webRushActive: false,
     webRushStartedAt: null, webRushEndsAt: null,
@@ -184,15 +187,16 @@ export function createGameSession() {
     if (!basePoints) return null
     scoredIds.add(target.id)
     state.combo = state.lastHitAt !== null && now - state.lastHitAt < COMBO_WINDOW_MS
-      ? Math.min(MAX_COMBO, state.combo + 1) : 1
+      ? state.combo + 1 : 1
     state.lastHitAt = now
     state.bestCombo = Math.max(state.bestCombo, state.combo)
-    const points = basePoints * state.combo
+    const points = basePoints * state.scoreMultiplier
     state.score += points
     state.targetsSliced += 1
     const award = { type: 'target-sliced', targetId: target.id, kind: target.kind,
       catalogId: target.catalogId,
-      x: target.x, y: target.y, points, combo: state.combo }
+      x: target.x, y: target.y, points, combo: state.combo,
+      scoreMultiplier: state.scoreMultiplier }
     events.push(award)
     if (state.combo > 1) events.push({ type: 'combo-increase', combo: state.combo })
     return award

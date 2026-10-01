@@ -25,7 +25,7 @@
           <form id="player-entry" class="player-entry" autocomplete="off">
             <label for="player-name">ENTER YOUR NAME</label>
             <input id="player-name" name="playerName" type="text" maxlength="16" autocomplete="off" />
-            <button id="player-entry-start" type="submit">START</button>
+            <button id="player-entry-start" class="primary-button" type="submit">START</button>
             <p id="player-name-error" class="player-name-error" role="alert" hidden>ENTER YOUR NAME</p>
           </form>
           <div id="ready-player" class="ready-player" hidden>
@@ -120,7 +120,7 @@
         <span class="result-score-label">FINAL SCORE</span>
         <div class="result-stats">
           <div><b id="final-sliced">0</b><span>SLICED</span></div>
-          <div><b id="final-combo">x1</b><span>BEST COMBO</span></div>
+          <div><b id="final-combo">1</b><span>BEST COMBO</span></div>
         </div>
         <p id="personal-best" class="personal-best"></p>
         <p id="new-high-score" class="new-high-score" hidden></p>
@@ -130,7 +130,7 @@
           <p id="leaderboard-empty" hidden>NO SCORES YET</p>
         </section>
         <div class="result-actions">
-          <button id="play-again" type="button">PLAY AGAIN</button>
+          <button id="play-again" class="primary-button" type="button">PLAY AGAIN</button>
           <button id="new-player" type="button">NEW PLAYER</button>
         </div>
         <p id="finished-idle-countdown" class="finished-idle-countdown" hidden></p>
