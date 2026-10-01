@@ -1,5 +1,6 @@
 import { segmentIntersectsCircle } from './geometry.js'
 import { selectWeightedTech, TECH_TARGET_BY_ID } from './catalog.js'
+import { selectWebRushTech } from './web-rush.js'
 
 export const MAX_ACTIVE_TARGETS = 5
 export const GRAVITY_PX_PER_S2 = 1050
@@ -37,14 +38,15 @@ export function createTargetSystem(random = Math.random) {
 
   function spawn(width, height, now, options = {}) {
     const { predictable = false, speedScale = 1, activeLimit = MAX_ACTIVE_TARGETS, lanePosition = null,
-      kind = null, catalogId = null, excludedIds = [], elapsedMs = 0 } = options
+      kind = null, catalogId = null, excludedIds = [], elapsedMs = 0,
+      selectionMode = 'normal' } = options
     if (width <= 0 || height <= 0 || activeCount() >= Math.min(MAX_ACTIVE_TARGETS, activeLimit)) return null
 
     const isGolden = kind === 'golden' || (!kind && !catalogId && !predictable
       && elapsedMs >= GOLDEN_ELIGIBLE_AFTER_MS && random() < GOLDEN_TARGET_CHANCE)
     const definition = isGolden ? null : catalogId
       ? TECH_TARGET_BY_ID.get(catalogId)
-      : selectWeightedTech(random, [
+      : (selectionMode === 'web-rush' ? selectWebRushTech : selectWeightedTech)(random, [
         ...excludedIds,
         ...(automaticRepeatCount >= 2 ? [lastAutomaticTechId] : []),
       ])

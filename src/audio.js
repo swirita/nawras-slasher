@@ -17,6 +17,7 @@ export function soundCueForEvent(event) {
     case 'target-sliced': return { name: event.kind === 'golden' ? 'golden-slice' : 'normal-slice',
       detail: { combo: event.combo } }
     case 'combo-increase': return { name: 'combo-increase', detail: { combo: event.combo } }
+    case 'web-rush-start': return { name: 'web-rush-start' }
     case 'final-15': return { name: 'final-15' }
     case 'final-ten-tick': return { name: 'final-ten-tick', detail: { second: event.second } }
     case 'round-finished': return { name: 'round-finished' }
@@ -129,6 +130,11 @@ export function createAudioSystem({
           break
         case 'combo-increase':
           tone(comboPitch(detail.combo ?? 2, 520), 0.12, 'sine', 0.045, 0.07)
+          break
+        case 'web-rush-start':
+          noise(0.18, 0.045, 0, 700, 3600)
+          tone(310, 0.38, 'sawtooth', 0.055, 0, 860)
+          tone(760, 0.18, 'sine', 0.06, 0.24, 1120)
           break
         case 'final-15':
           noise(0.21, 0.06, 0, 450, 2100)

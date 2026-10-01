@@ -16,6 +16,7 @@ import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
 import { createDeveloperUi } from './developer-ui.js'
 import { resetPlayerTracking } from './player-state.js'
 import { createReplayFlow } from './replay.js'
+import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
 import './style.css'
 
 const WASM_ROOT = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
@@ -37,6 +38,7 @@ const cameraOffButton = document.querySelector('#stop-camera')
 const startRoundButton = document.querySelector('#start-round')
 const resetRoundButton = document.querySelector('#reset-round')
 const spawnButton = document.querySelector('#spawn-target')
+const webRushButton = document.querySelector('#trigger-web-rush')
 const targetTypeSelect = document.querySelector('#target-type')
 const debugPanel = document.querySelector('#debug-panel')
 const cameraError = document.querySelector('#camera-error')
@@ -198,6 +200,9 @@ function updateHud() {
     && game.state.remainingMs <= 15000)
   app.classList.toggle('finale', game.state.phase === 'PLAYING'
     && game.state.remainingMs <= 15000)
+  app.classList.toggle('web-rush', game.state.phase === 'PLAYING' && game.state.webRushActive)
+  webRushButton.disabled = game.state.phase !== 'PLAYING' || game.state.webRushTriggered
+    || game.state.remainingMs <= 15000
   const showCombo = game.state.phase === 'PLAYING' && game.state.combo > 1
   comboIndicator.hidden = !showCombo
   if (showCombo) {
@@ -272,6 +277,15 @@ function processGameEvents(now) {
         updateHud()
         break
       case 'combo-expired':
+        updateHud()
+        break
+      case 'web-rush-start':
+        nextSpawnAt = now
+        showCallout('WEB RUSH!', now, WEB_RUSH_CONFIG.announcementMs, 'web-rush')
+        updateHud()
+        break
+      case 'web-rush-end':
+        nextSpawnAt = now + difficultyAt(game.state.elapsedMs).spawnIntervalMs
         updateHud()
         break
       case 'final-15':
@@ -744,18 +758,17 @@ function processResult(result, now) {
 }
 
 function spawnWave(now) {
-  const difficulty = difficultyAt(game.state.elapsedMs)
-  if (targets.activeCount() >= difficulty.activeLimit) return
-  const roll = Math.random()
-  const groupSize = roll < difficulty.tripleProbability
-    ? 3
-    : roll < difficulty.tripleProbability + difficulty.pairProbability ? 2 : 1
+  const profile = spawnProfileFor(difficultyAt(game.state.elapsedMs),
+    game.state.webRushActive, MAX_ACTIVE_TARGETS)
+  if (targets.activeCount() >= profile.activeLimit) return
+  const groupSize = groupSizeForRoll(Math.random(), profile)
   const waveIds = []
   for (let index = 0; index < groupSize; index += 1) {
     const target = targets.spawn(canvas.clientWidth, canvas.clientHeight, now, {
-      activeLimit: difficulty.activeLimit,
-      speedScale: difficulty.launchSpeedScale,
+      activeLimit: profile.activeLimit,
+      speedScale: profile.launchSpeedScale,
       elapsedMs: game.state.elapsedMs,
+      selectionMode: game.state.webRushActive ? 'web-rush' : 'normal',
       lanePosition: groupSize === 1 ? null : index / (groupSize - 1),
       excludedIds: waveIds,
     })
@@ -787,7 +800,8 @@ function frame(activeSession) {
       targets.update(dtSeconds, now, canvas.clientWidth, canvas.clientHeight)
       if (now >= nextSpawnAt) {
         spawnWave(now)
-        nextSpawnAt = now + difficultyAt(game.state.elapsedMs).spawnIntervalMs
+        nextSpawnAt = now + spawnProfileFor(difficultyAt(game.state.elapsedMs),
+          game.state.webRushActive, MAX_ACTIVE_TARGETS).spawnIntervalMs
       }
     }
 
@@ -1126,6 +1140,10 @@ spawnButton.addEventListener('click', () => {
     speedScale: difficultyAt(game.state.elapsedMs).launchSpeedScale,
   })
   updateDebug(performance.now(), true)
+})
+webRushButton.addEventListener('click', () => {
+  const now = performance.now()
+  if (game.triggerWebRush(now)) processGameEvents(now)
 })
 for (const target of TECH_TARGETS) {
   const option = document.createElement('option')

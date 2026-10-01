@@ -48,6 +48,11 @@ button { font: inherit; }
   background-size: 48px 48px;
 }
 .camera-stage canvas { z-index: 3; display: block; pointer-events: none; }
+.web-rush-atmosphere { position: absolute; z-index: 4; inset: 0; opacity: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 57%, rgb(10 143 188 / 8%) 79%, rgb(5 133 183 / 23%) 100%);
+  transition: opacity 0.28s ease-out; }
+.app.web-rush .web-rush-atmosphere { opacity: 1; animation: web-rush-breathe 1.8s ease-in-out infinite alternate; }
+@keyframes web-rush-breathe { from { opacity: 0.6; } to { opacity: 1; } }
 .finale-atmosphere { position: absolute; z-index: 4; inset: 0; opacity: 0; pointer-events: none;
   background: radial-gradient(ellipse at center, transparent 52%, rgb(11 86 117 / 10%) 79%, rgb(189 127 36 / 25%) 100%);
   transition: opacity 0.5s ease-out; }
@@ -218,6 +223,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .state-callout[data-kind="countdown-1"] { color: #0786ae; }
 .state-callout[data-kind="go"] { color: #067ca4; font-size: clamp(4rem, 10vw, 7.5rem);
   text-shadow: 0 0 24px rgb(59 193 222 / 46%), 0 3px 0 #fff; }
+.state-callout[data-kind="web-rush"] { color: #006f98; font-size: clamp(3.4rem, 8vw, 6.8rem);
+  letter-spacing: 0.025em; white-space: nowrap;
+  text-shadow: 0 0 25px rgb(27 193 230 / 52%), 0 3px 0 #fff; }
 .state-callout[data-kind="finale"] { color: #a45f09; font-size: clamp(3.2rem, 8.4vw, 6.8rem);
   text-shadow: 0 0 25px rgb(241 190 77 / 61%), 0 3px 0 #fff; white-space: nowrap; }
 .state-callout.pop { animation: callout-pop 0.72s ease-out; }
@@ -282,6 +290,7 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .state-callout.pop, .combo-indicator.bump, .new-high-score,
   .hud-stat.tick-pulse, .round-message.settled .result-score,
   .new-high-score::before, .new-high-score::after { animation: none; }
+  .app.web-rush .web-rush-atmosphere { animation: none; }
   .controls .primary-button, #play-again { transition: none; }
 }
 

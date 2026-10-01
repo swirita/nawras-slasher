@@ -1,4 +1,5 @@
 import { TECH_TARGET_BY_ID } from './catalog.js'
+import { WEB_RUSH_CONFIG } from './web-rush.js'
 
 export const GAME_DURATION_MS = 90000
 export const COUNTDOWN_MS = 3000
@@ -88,11 +89,31 @@ export function createGameSession() {
     countdownStartedAt: null, countdownNumber: null, startedAt: null,
     score: 0, targetsSliced: 0, combo: 1, bestCombo: 1,
     lastHitAt: null, highScore: 0, newHighScore: false,
+    webRushTriggered: false, webRushActive: false,
+    webRushStartedAt: null, webRushEndsAt: null,
   }
   const events = []
   const scoredIds = new Set()
   let finalWarningSent = false
   let lastFinalTick = null
+
+  function triggerWebRush(now) {
+    if (state.phase !== 'PLAYING' || state.webRushTriggered
+      || state.remainingMs <= FINAL_WARNING_MS) return false
+    state.webRushTriggered = true
+    state.webRushActive = true
+    state.webRushStartedAt = now
+    state.webRushEndsAt = now + WEB_RUSH_CONFIG.durationMs
+    events.push({ type: 'web-rush-start' })
+    return true
+  }
+
+  function endWebRush() {
+    if (!state.webRushActive) return false
+    state.webRushActive = false
+    events.push({ type: 'web-rush-end' })
+    return true
+  }
 
   function startCountdown(now) {
     if (state.phase !== 'READY') return false
@@ -123,6 +144,10 @@ export function createGameSession() {
     if (state.phase !== 'PLAYING') return false
     state.elapsedMs = Math.min(GAME_DURATION_MS, Math.max(0, now - state.startedAt))
     state.remainingMs = GAME_DURATION_MS - state.elapsedMs
+    if (state.webRushActive && (now >= state.webRushEndsAt
+      || state.remainingMs <= FINAL_WARNING_MS)) endWebRush()
+    if (!state.webRushTriggered && state.elapsedMs >= WEB_RUSH_CONFIG.triggerElapsedMs
+      && state.remainingMs > FINAL_WARNING_MS) triggerWebRush(now)
     if (state.combo > 1 && now - state.lastHitAt >= COMBO_WINDOW_MS) {
       state.combo = 1
       events.push({ type: 'combo-expired' })
@@ -186,6 +211,10 @@ export function createGameSession() {
     state.bestCombo = 1
     state.lastHitAt = null
     state.newHighScore = false
+    state.webRushTriggered = false
+    state.webRushActive = false
+    state.webRushStartedAt = null
+    state.webRushEndsAt = null
     finalWarningSent = false
     lastFinalTick = null
     scoredIds.clear()
@@ -196,6 +225,7 @@ export function createGameSession() {
     if (state.phase !== 'PLAYING' && state.phase !== 'COUNTDOWN') return false
     state.phase = 'INTERRUPTED'
     state.combo = 1
+    state.webRushActive = false
     events.length = 0
     return true
   }
@@ -203,5 +233,6 @@ export function createGameSession() {
   function drainEvents() { return events.splice(0) }
   function canSpawn() { return state.phase === 'PLAYING' }
 
-  return { state, startCountdown, update, scoreTarget, reset, abort, drainEvents, canSpawn }
+  return { state, startCountdown, update, triggerWebRush, scoreTarget, reset, abort,
+    drainEvents, canSpawn }
 }
