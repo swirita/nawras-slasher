@@ -128,24 +128,33 @@ export function createAudioSystem({
           tone(380, 0.23, 'triangle', 0.11, 0, 900)
           tone(790, 0.13, 'sine', 0.075, 0.13, 980)
           break
-        case 'normal-slice':
-          noise(0.13, 0.075, 0, 900, 3700)
-          tone(comboPitch(detail.combo ?? 1), 0.15, 'triangle', 0.09, 0.018,
-            comboPitch(detail.combo ?? 1) * 0.68)
+        case 'normal-slice': {
+          const comboStep = Math.min(Math.max(detail.combo ?? 1, 1), 5)
+          const p = 1 + (comboStep - 1) * 0.06
+          tone(600 * p, 0.05, 'sine', 0.07, 0, 200 * p)
+          tone(660 * p, 0.09, 'triangle', 0.05, 0.04, 880 * p)
+          tone(990 * p, 0.14, 'triangle', 0.045, 0.09, 1100 * p)
           break
+        }
         case 'golden-slice':
-          noise(0.17, 0.085, 0, 850, 3900)
-          tone(comboPitch(detail.combo ?? 1, 560), 0.22, 'triangle', 0.095, 0.015,
-            comboPitch(detail.combo ?? 1, 720))
-          tone(comboPitch(detail.combo ?? 1, 860), 0.29, 'sine', 0.07, 0.065,
-            comboPitch(detail.combo ?? 1, 1080))
+          tone(600, 0.05, 'sine', 0.07, 0, 200)
+          tone(784, 0.08, 'triangle', 0.05, 0.04, 800)
+          tone(988, 0.08, 'triangle', 0.05, 0.09, 1000)
+          tone(1175, 0.08, 'triangle', 0.05, 0.14, 1200)
+          tone(1568, 0.30, 'triangle', 0.05, 0.19, 1600)
+          tone(2349, 0.35, 'sine', 0.02, 0.19, 2400)
+          tone(2362, 0.35, 'sine', 0.02, 0.19, 2410)
           break
         case 'combo-increase':
           tone(comboPitch(detail.combo ?? 2, 520), 0.12, 'sine', 0.045, 0.07)
           break
         case 'bug-hit':
-          tone(330, 0.13, 'triangle', 0.065, 0, 165)
-          tone(190, 0.10, 'sine', 0.045, 0.08, 110)
+          tone(240, 0.05, 'sawtooth', 0.04, 0, 200)
+          tone(250, 0.05, 'sawtooth', 0.04, 0.04, 190)
+          tone(230, 0.05, 'sawtooth', 0.04, 0.08, 170)
+          tone(160, 0.07, 'square', 0.05, 0.05, 50)
+          tone(392, 0.14, 'triangle', 0.07, 0.14, 360)
+          tone(262, 0.30, 'triangle', 0.07, 0.30, 140)
           break
         case 'web-rush-start':
           noise(0.18, 0.045, 0, 700, 3600)

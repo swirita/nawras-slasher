@@ -10,8 +10,16 @@ export const CALLOUT_EXIT_MS = Object.freeze({
   go: 400,
   'web-rush': 400,
   finale: 450,
-  bug: 200,
 })
+
+export const BUG_IMPACT_MS = 240
+export const BUG_WASH_MS = 140
+
+export function bugImpactStrength(now, hitAt, duration = BUG_IMPACT_MS) {
+  if (hitAt === null || hitAt === undefined || now < hitAt) return 0
+  const remaining = Math.max(0, 1 - (now - hitAt) / duration)
+  return remaining * remaining
+}
 
 export function calloutPhaseAt(now, visibleUntil, kind) {
   if (now < visibleUntil) return 'visible'

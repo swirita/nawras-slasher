@@ -6,7 +6,7 @@ import { BUG_TARGET, TECH_TARGETS, TECH_TARGET_BY_ID, ORDINARY_TARGETS,
 import { createGameSession, COUNTDOWN_MS } from '../src/game.js'
 import { createTargetSystem, MAX_ACTIVE_TARGETS, HIT_EFFECT_MS } from '../src/targets.js'
 import { WEB_TARGET_IDS, selectWebRushTech } from '../src/web-rush.js'
-import { calloutPhaseAt } from '../src/presentation.js'
+import { bugImpactStrength, BUG_IMPACT_MS, BUG_WASH_MS } from '../src/presentation.js'
 import { soundCueForEvent, createAudioSystem } from '../src/audio.js'
 
 const bug = id => ({ id, kind: 'bug', catalogId: 'bug', x: 250, y: 200 })
@@ -21,7 +21,7 @@ function playing() {
 
 test('Bug is a separate immutable penalty definition, not a scoring tech', () => {
   assert.deepEqual(BUG_TARGET, { id: 'bug', label: 'Bug', asset: 'assets/bug.png',
-    type: 'penalty', penalty: 25, weight: 4, visualScale: 1 })
+    type: 'penalty', penalty: 25, weight: 6, visualScale: 1 })
   assert.equal(Object.isFrozen(BUG_TARGET), true)
   assert.equal(TARGET_BY_ID.get('bug'), BUG_TARGET)
   assert.equal(TECH_TARGET_BY_ID.has('bug'), false)
@@ -37,15 +37,15 @@ test('Bug uses the existing preload and Pages-safe public asset path', () => {
       `${base}assets/bug.png`)
   }
 })
-test('ordinary weighted sampling gives Bug 4 of 104 weight units', () => {
+test('ordinary weighted sampling gives Bug 6 of 106 weight units', () => {
   const counts = new Map()
-  for (let i = 0; i < 104; i++) {
-    const target = selectWeightedTarget(() => (i + 0.5) / 104)
+  for (let i = 0; i < 106; i++) {
+    const target = selectWeightedTarget(() => (i + 0.5) / 106)
     counts.set(target.id, (counts.get(target.id) ?? 0) + 1)
   }
   for (const target of ORDINARY_TARGETS) assert.equal(counts.get(target.id), target.weight)
-  assert.equal(counts.get('bug'), 4)
-  for (const id of ['python', 'javascript', 'html', 'css']) assert.ok(counts.get(id) > 4)
+  assert.equal(counts.get('bug'), 6)
+  for (const id of ['python', 'javascript', 'html', 'css']) assert.ok(counts.get(id) > 6)
 })
 test('Bug can spawn automatically through the ordinary scheduler selection', () => {
   const targets = createTargetSystem(() => 0.99)
@@ -164,17 +164,20 @@ test('Bug cannot penalize outside PLAYING', () => {
     assert.deepEqual(game.drainEvents(), [])
   }
 })
-test('Bug feedback is readable for 800ms then fades for 200ms', () => {
-  assert.equal(calloutPhaseAt(799, 800, 'bug'), 'visible')
-  assert.equal(calloutPhaseAt(800, 800, 'bug'), 'exiting')
-  assert.equal(calloutPhaseAt(999, 800, 'bug'), 'exiting')
-  assert.equal(calloutPhaseAt(1000, 800, 'bug'), 'hidden')
+test('Bug impact fades rapidly with no central warning and keeps floating negative points', () => {
+  assert.equal(BUG_IMPACT_MS, 240)
+  assert.equal(BUG_WASH_MS, 140)
+  assert.equal(bugImpactStrength(100, 100), 1)
+  assert.equal(bugImpactStrength(220, 100), 0.25)
+  assert.equal(bugImpactStrength(340, 100), 0)
+  assert.equal(bugImpactStrength(240, 100, BUG_WASH_MS), 0)
+  assert.equal(bugImpactStrength(100, null), 0)
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
   const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
-  assert.match(html, /id="bug-feedback"[\s\S]*?OOPS! YOU HIT A BUG[\s\S]*?<span>−25<\/span>/)
-  assert.match(main, /bugFeedbackUntil = now \+ 800/)
-  assert.match(css, /\.bug-feedback[^}]*pointer-events: none/)
+  assert.doesNotMatch(html + css + main, /OOPS! YOU HIT A BUG|bug-feedback|bugFeedback/)
+  assert.match(main, /bugImpactAt = now/)
+  assert.match(main, /!reducedMotionQuery\.matches && game\.state\.phase === 'PLAYING'/)
   assert.match(main, /feedback\.kind === 'bug' \? `−\$\{Math\.abs\(feedback\.points\)\}`/)
   assert.match(main, /game\.state\.combo === 0/)
 })
@@ -204,8 +207,9 @@ test('Bug sound uses a quiet short descending synthesized cue and respects Sound
   assert.equal(audio.cue('bug-hit'), false)
   await audio.unlock()
   assert.equal(audio.cue('bug-hit'), true)
-  assert.deepEqual(tones, [{ start: 330, end: 165 }, { start: 190, end: 110 }])
+  assert.deepEqual(tones, [{ start: 240, end: 200 }, { start: 250, end: 190 },
+    { start: 230, end: 170 }, { start: 160, end: 50 }, { start: 392, end: 360 }, { start: 262, end: 140 }])
   audio.setEnabled(false)
   assert.equal(audio.cue('bug-hit'), false)
-  assert.equal(tones.length, 2)
+  assert.equal(tones.length, 6)
 })

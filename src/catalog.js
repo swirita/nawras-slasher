@@ -17,7 +17,7 @@ export const TECH_TARGETS = Object.freeze([
 export const TECH_TARGET_BY_ID = new Map(TECH_TARGETS.map((target) => [target.id, target]))
 export const BUG_TARGET = Object.freeze({
   id: 'bug', label: 'Bug', asset: 'assets/bug.png', type: 'penalty',
-  penalty: 25, weight: 4, visualScale: 1,
+  penalty: 25, weight: 6, visualScale: 1,
 })
 export const ORDINARY_TARGETS = Object.freeze([...TECH_TARGETS, BUG_TARGET])
 export const TARGET_BY_ID = new Map(ORDINARY_TARGETS.map((target) => [target.id, target]))

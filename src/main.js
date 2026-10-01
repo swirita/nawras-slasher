@@ -9,7 +9,8 @@ import {
 import { createTargetSystem, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS, MAX_ACTIVE_TARGETS } from './targets.js'
 import { createGameSession, difficultyAt, formatTime } from './game.js'
 import { createAudioSystem, soundCueForEvent } from './audio.js'
-import { calloutPhaseAt, comboPresentation, displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
+import { calloutPhaseAt, comboPresentation, displayedResultScore, resultSummary, RESULT_COUNTUP_MS,
+  bugImpactStrength, BUG_WASH_MS } from './presentation.js'
 import { REQUIRED_ASSETS, ORDINARY_TARGETS, TARGET_BY_ID } from './catalog.js'
 import { containedImageRect, sliceClipPolygon } from './rendering.js'
 import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
@@ -59,7 +60,6 @@ const roundMessage = document.querySelector('#round-message')
 const app = document.querySelector('.app')
 const stateCallout = document.querySelector('#state-callout')
 const comboIndicator = document.querySelector('#combo-indicator')
-const bugFeedback = document.querySelector('#bug-feedback')
 const timerStat = document.querySelector('#timer-stat')
 const finalScoreValue = document.querySelector('#final-score')
 const finalSlicedValue = document.querySelector('#final-sliced')
@@ -169,6 +169,7 @@ let handLandmarker = null
 let animationFrameId = null
 let cameraStartPromise = null
 let retryContext = 'initial'
+let mouseIdleTimer = null
 let sessionId = 0
 let lastVideoTime = -1
 let lastFrameTime = null
@@ -194,7 +195,7 @@ const floatingTexts = []
 const particles = []
 const reusableParticles = []
 let calloutUntil = 0
-let bugFeedbackUntil = 0
+let bugImpactAt = null
 let resultShownAt = null
 let beginningRound = false
 let roundRequestId = 0
@@ -304,6 +305,17 @@ async function preloadAssets() {
       id, await preloadImage(`${import.meta.env.BASE_URL}${asset}`),
     ]))
     assets.images = new Map(loaded)
+    // Tint the transparent artwork once; hit frames reuse this small cached canvas.
+    const bugImage = assets.images.get('bug')
+    const bugImpactImage = document.createElement('canvas')
+    bugImpactImage.width = bugImage.naturalWidth
+    bugImpactImage.height = bugImage.naturalHeight
+    const impactContext = bugImpactImage.getContext('2d')
+    impactContext.drawImage(bugImage, 0, 0)
+    impactContext.globalCompositeOperation = 'source-in'
+    impactContext.fillStyle = '#f02030'
+    impactContext.fillRect(0, 0, bugImpactImage.width, bugImpactImage.height)
+    assets.images.set('bug-impact', bugImpactImage)
     assets.ready = true
     readyWordmark.src = assets.images.get('wordmark').src
     hudWordmark.src = assets.images.get('wordmark').src
@@ -346,19 +358,32 @@ function updateHud() {
       void comboIndicator.offsetWidth
       comboIndicator.classList.add('bump')
     }
-    comboIndicator.dataset.level = String(game.state.scoreMultiplier)
+    const level = String(game.state.scoreMultiplier)
+    if (comboIndicator.dataset.level !== level) comboIndicator.dataset.level = level
   }
+}
+
+function clearMouseIdle() {
+  if (mouseIdleTimer !== null) clearTimeout(mouseIdleTimer)
+  mouseIdleTimer = null
+  app.classList.remove('cursor-idle')
+}
+
+function armMouseIdle() {
+  clearMouseIdle()
+  if (game.state.phase !== 'PLAYING') return
+  mouseIdleTimer = setTimeout(() => {
+    mouseIdleTimer = null
+    if (game.state.phase === 'PLAYING') app.classList.add('cursor-idle')
+  }, 1700)
 }
 
 function syncPhaseUi() {
   if (game.state.phase !== 'FINISHED') finishedIdle.stop()
   app.dataset.phase = game.state.phase
   fullscreen.sync()
-  if (game.state.phase !== 'PLAYING') {
-    bugFeedback.hidden = true
-    bugFeedback.classList.remove('exiting')
-    bugFeedbackUntil = 0
-  }
+  if (game.state.phase === 'PLAYING') armMouseIdle()
+  else { clearMouseIdle(); bugImpactAt = null }
   syncPlayerUi()
   resetGameButton.hidden = !resetGameVisible(game.state.phase)
   if (!resetGameVisible(game.state.phase) && resetConfirmation.state.armed) resetConfirmation.clear()
@@ -403,9 +428,7 @@ function processGameEvents(now) {
       case 'bug-hit':
         floatingTexts.push({ ...event, at: now })
         createParticles(event, now)
-        bugFeedback.hidden = false
-        bugFeedback.classList.remove('exiting')
-        bugFeedbackUntil = now + 800
+        bugImpactAt = now
         updateHud()
         break
       case 'combo-increase':
@@ -535,14 +558,6 @@ function updateEffects(now) {
     } else reusableParticles.push(particle)
   }
   particles.length = write
-  if (!bugFeedback.hidden) {
-    const phase = calloutPhaseAt(now, bugFeedbackUntil, 'bug')
-    if (phase === 'exiting') bugFeedback.classList.add('exiting')
-    else if (phase === 'hidden') {
-      bugFeedback.hidden = true
-      bugFeedback.classList.remove('exiting')
-    }
-  }
   if (!stateCallout.hidden) {
     const phase = calloutPhaseAt(now, calloutUntil, stateCallout.dataset.kind)
     if (phase === 'exiting') stateCallout.classList.add('exiting')
@@ -635,13 +650,30 @@ function drawTarget(target, now) {
   const hitDuration = target.kind === 'golden' ? GOLDEN_HIT_EFFECT_MS : HIT_EFFECT_MS
   const effect = target.sliced ? Math.min(1, (now - target.slicedAt) / hitDuration) : 0
   const radius = target.radius
+  const bugFlash = target.kind === 'bug' && target.sliced
+    ? bugImpactStrength(now, target.slicedAt) : 0
   context.save()
   context.globalAlpha = target.sliced ? 1 - effect : 1
-  if (target.kind === 'bug' && target.sliced && effect < 0.45) {
+  if (target.kind === 'bug' && (!target.sliced || bugFlash > 0)) {
+    const wave = target.sliced || reducedMotionQuery.matches
+      ? 0 : Math.sin(now * Math.PI * 2 / 1050)
+    const auraRadius = radius * 1.18 * (1 + wave * 0.04) * (1 + bugFlash * 0.03)
+    const strength = target.sliced ? bugFlash : 1
+    const glow = context.createRadialGradient(target.x, target.y, radius * 0.15,
+      target.x, target.y, auraRadius)
+    glow.addColorStop(0, `rgba(230, 35, 45, ${(0.07 + bugFlash * 0.40) * strength})`)
+    glow.addColorStop(0.58, `rgba(230, 35, 45, ${(0.09 + bugFlash * 0.48) * strength})`)
+    glow.addColorStop(0.82, `rgba(230, 35, 45, ${(0.18 + wave * 0.025 + bugFlash * 0.42) * strength})`)
+    glow.addColorStop(1, 'rgba(230, 35, 45, 0)')
     context.beginPath()
-    context.arc(target.x, target.y, radius * 1.08, 0, Math.PI * 2)
-    context.fillStyle = `rgba(199, 79, 53, ${0.22 * (1 - effect / 0.45)})`
+    context.arc(target.x, target.y, auraRadius, 0, Math.PI * 2)
+    context.fillStyle = glow
     context.fill()
+    context.beginPath()
+    context.arc(target.x, target.y, auraRadius * 0.92, 0, Math.PI * 2)
+    context.lineWidth = 1.8 + bugFlash * 1.6
+    context.strokeStyle = `rgba(230, 35, 45, ${(0.68 + wave * 0.05 + bugFlash * 0.25) * strength})`
+    context.stroke()
   }
   if (target.kind === 'golden') {
     const age = Math.max(0, now - target.createdAt)
@@ -736,6 +768,11 @@ function drawTarget(target, now) {
       context.clip()
       context.drawImage(image, target.x + imageRect.x, target.y + imageRect.y,
         imageRect.width, imageRect.height)
+      if (bugFlash > 0) {
+        context.globalAlpha *= bugFlash
+        context.drawImage(assets.images.get('bug-impact'), target.x + imageRect.x,
+          target.y + imageRect.y, imageRect.width, imageRect.height)
+      }
       context.restore()
     }
     context.beginPath()
@@ -780,6 +817,13 @@ function drawScene(now) {
   context.clearRect(0, 0, displayWidth, displayHeight)
   for (const target of targets.state.targets) drawTarget(target, now)
   drawEffects(now)
+  if (!reducedMotionQuery.matches && game.state.phase === 'PLAYING') {
+    const wash = bugImpactStrength(now, bugImpactAt, BUG_WASH_MS)
+    if (wash > 0) {
+      context.fillStyle = `rgba(220, 25, 40, ${0.045 * wash})`
+      context.fillRect(0, 0, displayWidth, displayHeight)
+    }
+  }
 
   if (showRawPath && !debugPanel.hidden) {
     context.lineCap = 'round'
@@ -1420,8 +1464,9 @@ document.addEventListener('keydown', (event) => {
     updateDebug(performance.now(), true)
   }
 })
-document.addEventListener('pointermove', () => {
+document.addEventListener('pointermove', (event) => {
   finishedIdle.activity()
+  if (event.pointerType === 'mouse' && game.state.phase === 'PLAYING') armMouseIdle()
 })
 app.addEventListener('dragstart', (event) => event.preventDefault())
 for (const image of app.querySelectorAll('img')) image.draggable = false

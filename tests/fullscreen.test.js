@@ -156,11 +156,12 @@ test('Ctrl+Shift+D still toggles the developer panel', () => {
   assert.equal(developer.handleKeydown(event), true)
   assert.equal(panel.hidden, false)
 })
-test('cursor is owned exclusively by PLAYING CSS, with no mouse inactivity mechanism', () => {
+test('cursor hiding requires PLAYING and its single inactivity class', () => {
   const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-  assert.match(css, /\.app\[data-phase="PLAYING"\], \.app\[data-phase="PLAYING"\] \* \{ cursor: none !important; \}/)
-  assert.doesNotMatch(main + css, /cursor-idle|mouseIdle|armMouseIdle|clearMouseIdle/)
+  assert.match(css, /\.app\[data-phase="PLAYING"\]\.cursor-idle, \.app\[data-phase="PLAYING"\]\.cursor-idle \* \{ cursor: none !important; \}/)
+  assert.doesNotMatch(css, /\.app\[data-phase="PLAYING"\], \.app\[data-phase="PLAYING"\] \*/)
+  assert.match(main, /if \(game\.state\.phase === 'PLAYING'\) armMouseIdle\(\)/)
   assert.match(main, /app\.dataset\.phase = game\.state\.phase/)
   const resize = main.match(/function resizeCanvas\(\) \{([\s\S]*?)\n\}\n/)?.[1]
   assert.match(resize, /canvas\.width = Math\.round\(width \* pixelRatio\)/)

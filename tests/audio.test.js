@@ -130,7 +130,7 @@ test('short-lived sound nodes disconnect after playback', async () => {
   assert.equal(audio.cue('normal-slice'), true)
   const context = TrackedAudioContext.instance
   const sources = context.nodes.filter((node) => typeof node.onended === 'function')
-  assert.equal(sources.length, 2)
+  assert.equal(sources.length, 3)
   for (const source of sources) source.onended()
   assert.equal(context.nodes[0].disconnectCount, 0) // Shared master remains connected.
   assert.ok(context.nodes.slice(1).every((node) => node.disconnectCount === 1))
