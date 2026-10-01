@@ -94,11 +94,13 @@ export function createTargetSystem(random = Math.random) {
   }
 
   function update(dtSeconds, now, width, height) {
-    const dt = Math.max(0, Math.min(dtSeconds, MAX_PHYSICS_DT_S))
+    // Catch up brief frame stalls rather than losing motion after 50ms. The
+    // analytic gravity step matches the old 60Hz trajectory at every frame rate.
+    const dt = Math.max(0, Math.min(dtSeconds, MAX_PHYSICS_DT_S * 5))
     for (const target of state.targets) {
       if (target.sliced) continue
       target.x += target.vx * dt
-      target.y += target.vy * dt
+      target.y += target.vy * dt + target.gravity * dt * (dt - 1 / 60) / 2
       target.vy += target.gravity * dt
       target.rotation += target.angularVelocity * dt
     }

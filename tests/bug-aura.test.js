@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { bugImpactStrength } from '../src/presentation.js'
 import { containedImageRect, sliceClipPolygon } from '../src/rendering.js'
+import { drawGlow } from '../src/glow-cache.js'
 import { createTargetSystem, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS,
   NORMAL_SLASH_HIT_RADIUS } from '../src/targets.js'
 
@@ -12,6 +13,7 @@ const draw = main.match(/function drawTarget\(target, now\) \{[\s\S]*?\n\}\n/)[0
 function fixture(reducedMotion = false) {
   const calls = [], gradients = [], stack = []
   const image = { naturalWidth: 800, naturalHeight: 800 }, tint = {}
+  const glows = new Map(['bug-base','bug-pulse','bug-hit'].map(id => [id,{ id }]))
   const context = { globalAlpha: 1,
     save() { stack.push(this.globalAlpha) }, restore() { this.globalAlpha = stack.pop() },
     createRadialGradient(...args) {
@@ -24,11 +26,11 @@ function fixture(reducedMotion = false) {
     drawImage(...args) { calls.push({ type: 'image', args, alpha: this.globalAlpha }) },
     translate() {}, rotate() {}, moveTo() {}, lineTo() {}, closePath() {}, clip() {},
   }
-  const scope = { context, assets: { images: new Map([['bug', image], ['bug-impact', tint], ['python', image]]) },
+  const scope = { context, assets: { glows, images: new Map([['bug', image], ['bug-impact', tint], ['python', image]]) },
     containedImageRect, sliceClipPolygon, bugImpactStrength, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS,
-    reducedMotionQuery: { matches: reducedMotion }, Math }
+    reducedMotionQuery: { matches: reducedMotion }, drawGlow, Math }
   runInNewContext(draw, scope)
-  return { calls, gradients, image, tint, draw: scope.drawTarget }
+  return { calls, gradients, glows, image, tint, draw: scope.drawTarget }
 }
 const liveBug = () => ({ kind: 'bug', catalogId: 'bug', radius: 50, visualScale: 1,
   x: 200, y: 150, rotation: 0, createdAt: 0, sliced: false, slicedAt: null })
@@ -37,12 +39,12 @@ test('live Bug aura is centered, behind unchanged artwork, and does not mutate i
   const f = fixture(), bug = liveBug(), before = structuredClone(bug)
   f.draw(bug, 0)
   assert.deepEqual(bug, before)
-  assert.equal(f.gradients.length, 1)
-  assert.deepEqual(f.gradients[0].args, [200,150,7.5,200,150,59])
+  assert.equal(f.gradients.length, 0, 'no live gradient allocation/rasterization')
+  assert.deepEqual(f.calls[0].args.slice(1), [141,91,118,118])
   const ring = f.calls.find(c => c.type === 'stroke')
   assert.match(ring.style, /rgba\(230, 35, 45,/)
   assert.equal(ring.width, 1.8)
-  const images = f.calls.filter(c => c.type === 'image')
+  const images = f.calls.filter(c => c.type === 'image' && c.args[0] === f.image)
   assert.equal(images.length, 1)
   assert.equal(images[0].args[0], f.image)
   assert.equal(images[0].alpha, 1)
@@ -51,7 +53,7 @@ test('live Bug aura is centered, behind unchanged artwork, and does not mutate i
 test('Bug aura pulses every 1050ms with only ±4% radius variation', () => {
   const radii = []
   for (const now of [0,262.5,525,787.5,1050]) {
-    const f = fixture(); f.draw(liveBug(), now); radii.push(f.gradients[0].args[5])
+    const f = fixture(); f.draw(liveBug(), now); radii.push(f.calls[0].args[3] / 2)
   }
   assert.ok(Math.abs(radii[0] - radii[4]) < 1e-9)
   assert.ok(Math.abs(radii[1] / radii[0] - 1.04) < 1e-9)
@@ -60,18 +62,19 @@ test('Bug aura pulses every 1050ms with only ±4% radius variation', () => {
 test('reduced motion keeps a stable live hazard ring', () => {
   const first = fixture(true), second = fixture(true)
   first.draw(liveBug(), 262.5); second.draw(liveBug(), 787.5)
-  assert.deepEqual(first.gradients[0].args, second.gradients[0].args)
-  assert.deepEqual(first.gradients[0].stops, second.gradients[0].stops)
+  assert.deepEqual(first.calls[0].args.slice(1), second.calls[0].args.slice(1))
+  assert.equal(first.calls[1].alpha, second.calls[1].alpha)
 })
 test('Bug hit intensifies the hazard ring and clears its aura at 240ms', () => {
   const live = fixture(); live.draw(liveBug(), 0)
   const hit = fixture(), target = { ...liveBug(), sliced: true, slicedAt: 100 }
   hit.draw(target, 100)
   assert.ok(hit.calls.find(c => c.type === 'stroke').width > live.calls.find(c => c.type === 'stroke').width)
-  assert.ok(hit.gradients[0].args[5] > live.gradients[0].args[5])
+  assert.ok(hit.calls[0].args[3] > live.calls[0].args[3])
   assert.ok(hit.calls.some(c => c.type === 'image' && c.args[0] === hit.tint))
   const ended = fixture(); ended.draw(target, 340)
   assert.equal(ended.gradients.length, 0)
+  assert.ok(!ended.calls.some(c => c.type === 'image' && c.args[0]?.id?.startsWith('bug-')))
   assert.ok(!ended.calls.some(c => c.type === 'image' && c.args[0] === ended.tint))
 })
 test('non-Bug tech rendering gains no aura', () => {

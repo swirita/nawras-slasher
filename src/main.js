@@ -1,4 +1,5 @@
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
+import { initializeInference, videoFrameId } from './inference.js'
+import { createGlowCache, drawGlow } from './glow-cache.js'
 import { cameraPointToDisplay } from './geometry.js'
 import { createFingerProcessor } from './tracking.js'
 import { createHandMotionProcessor, estimateFingerFromHand, handAnchorFromLandmarks } from './hand.js'
@@ -89,6 +90,8 @@ const timerValue = document.querySelector('#timer')
 const scoreValue = document.querySelector('#score')
 const fpsValue = document.querySelector('#fps-value')
 const detectMsValue = document.querySelector('#detect-ms')
+const trackingLatencyValue = document.querySelector('#tracking-latency')
+const inferencePendingValue = document.querySelector('#inference-pending')
 const renderFpsValue = document.querySelector('#render-fps')
 const frameMsValue = document.querySelector('#frame-ms')
 const workMsValue = document.querySelector('#work-ms')
@@ -305,6 +308,17 @@ async function preloadAssets() {
       id, await preloadImage(`${import.meta.env.BASE_URL}${asset}`),
     ]))
     assets.images = new Map(loaded)
+    // Immutable bitmaps let the compositor reuse uploaded glow textures.
+    assets.glows = new Map(await Promise.all([...createGlowCache()].map(async ([id, canvas]) =>
+      [id, await createImageBitmap(canvas)])))
+    // Decode/downsample flying artwork once instead of scaling large PNG/WebP
+    // sources during busy frames. Original images still own layout and branding.
+    assets.targetImages = new Map(await Promise.all(loaded.filter(([id]) => id !== 'wordmark')
+      .map(async ([id, image]) => {
+        const scale = Math.min(1, 320 / Math.max(image.naturalWidth, image.naturalHeight))
+        return [id, await createImageBitmap(image, { resizeWidth: Math.round(image.naturalWidth * scale),
+          resizeHeight: Math.round(image.naturalHeight * scale), resizeQuality: 'high' })]
+      })))
     // Tint the transparent artwork once; hit frames reuse this small cached canvas.
     const bugImage = assets.images.get('bug')
     const bugImpactImage = document.createElement('canvas')
@@ -560,7 +574,7 @@ function updateEffects(now) {
   particles.length = write
   if (!stateCallout.hidden) {
     const phase = calloutPhaseAt(now, calloutUntil, stateCallout.dataset.kind)
-    if (phase === 'exiting') stateCallout.classList.add('exiting')
+    if (phase === 'exiting') setClass(stateCallout, 'exiting', true)
     else if (phase === 'hidden') {
       stateCallout.hidden = true
       stateCallout.classList.remove('exiting')
@@ -571,6 +585,8 @@ function updateEffects(now) {
 function updateDebug(now, force = false) {
   if (debugPanel.hidden || (!force && now - lastDebugAt < DEBUG_UPDATE_MS)) return
   lastDebugAt = now
+  setText(trackingLatencyValue, (handLandmarker?.state.latencyMs ?? 0).toFixed(1))
+  setText(inferencePendingValue, Number(handLandmarker?.state.busy ?? false))
   const frameStats = frameMonitor.snapshot()
   setText(renderFpsValue, Math.round(frameStats.renderedFps))
   setText(frameMsValue, frameStats.averageFrameMs.toFixed(1))
@@ -644,6 +660,7 @@ function resizeCanvas() {
 function drawTarget(target, now) {
   const image = assets.images.get(target.catalogId)
   if (!image) return
+  const renderedImage = assets.targetImages?.get(target.catalogId) ?? image
   const imageRect = containedImageRect(image.naturalWidth, image.naturalHeight,
     target.radius, target.visualScale)
   if (!imageRect) return
@@ -659,16 +676,9 @@ function drawTarget(target, now) {
       ? 0 : Math.sin(now * Math.PI * 2 / 1050)
     const auraRadius = radius * 1.18 * (1 + wave * 0.04) * (1 + bugFlash * 0.03)
     const strength = target.sliced ? bugFlash : 1
-    const glow = context.createRadialGradient(target.x, target.y, radius * 0.15,
-      target.x, target.y, auraRadius)
-    glow.addColorStop(0, `rgba(230, 35, 45, ${(0.07 + bugFlash * 0.40) * strength})`)
-    glow.addColorStop(0.58, `rgba(230, 35, 45, ${(0.09 + bugFlash * 0.48) * strength})`)
-    glow.addColorStop(0.82, `rgba(230, 35, 45, ${(0.18 + wave * 0.025 + bugFlash * 0.42) * strength})`)
-    glow.addColorStop(1, 'rgba(230, 35, 45, 0)')
-    context.beginPath()
-    context.arc(target.x, target.y, auraRadius, 0, Math.PI * 2)
-    context.fillStyle = glow
-    context.fill()
+    drawGlow(context, assets.glows, 'bug-base', target.x, target.y, auraRadius, strength)
+    drawGlow(context, assets.glows, 'bug-pulse', target.x, target.y, auraRadius, (wave + 1) * .5 * strength)
+    drawGlow(context, assets.glows, 'bug-hit', target.x, target.y, auraRadius, bugFlash * strength)
     context.beginPath()
     context.arc(target.x, target.y, auraRadius * 0.92, 0, Math.PI * 2)
     context.lineWidth = 1.8 + bugFlash * 1.6
@@ -683,26 +693,10 @@ function drawTarget(target, now) {
     const shimmerAge = age % shimmerPeriod
     const shimmerStrength = shimmerAge < 240 ? Math.sin(Math.PI * shimmerAge / 240) : 0
     const auraRadius = radius * (2.35 + (1 - entrance) * 0.32) * pulse
-    const aura = context.createRadialGradient(target.x, target.y, radius * 0.42,
-      target.x, target.y, auraRadius)
-    aura.addColorStop(0, `rgba(255, 249, 209, ${0.48 + shimmerStrength * 0.27})`)
-    aura.addColorStop(0.28, `rgba(255, 210, 88, ${0.40 + shimmerStrength * 0.2})`)
-    aura.addColorStop(0.68, 'rgba(191, 116, 20, 0.19)')
-    aura.addColorStop(1, 'rgba(148, 81, 14, 0)')
-    context.fillStyle = aura
-    context.beginPath()
-    context.arc(target.x, target.y, auraRadius, 0, Math.PI * 2)
-    context.fill()
+    drawGlow(context, assets.glows, 'golden-base', target.x, target.y, auraRadius)
+    drawGlow(context, assets.glows, 'golden-shimmer', target.x, target.y, auraRadius, shimmerStrength)
     if (target.sliced) {
-      const flash = context.createRadialGradient(target.x, target.y, 0,
-        target.x, target.y, radius * 1.45)
-      flash.addColorStop(0, `rgba(255, 254, 226, ${0.72 * (1 - effect)})`)
-      flash.addColorStop(0.5, `rgba(255, 216, 99, ${0.33 * (1 - effect)})`)
-      flash.addColorStop(1, 'rgba(255, 196, 53, 0)')
-      context.fillStyle = flash
-      context.beginPath()
-      context.arc(target.x, target.y, radius * 1.45, 0, Math.PI * 2)
-      context.fill()
+      drawGlow(context, assets.glows, 'golden-hit', target.x, target.y, radius * 1.45, 1 - effect)
     }
 
     const rotation = now / 1700
@@ -766,7 +760,7 @@ function drawTarget(target, now) {
       context.lineTo(d.x, d.y)
       context.closePath()
       context.clip()
-      context.drawImage(image, target.x + imageRect.x, target.y + imageRect.y,
+      context.drawImage(renderedImage, target.x + imageRect.x, target.y + imageRect.y,
         imageRect.width, imageRect.height)
       if (bugFlash > 0) {
         context.globalAlpha *= bugFlash
@@ -788,7 +782,7 @@ function drawTarget(target, now) {
     const iconScale = target.kind === 'golden' && entranceAge < 300
       ? entranceAge < 160 ? 0.85 + entranceAge / 160 * 0.2 : 1.05 - (entranceAge - 160) / 140 * 0.05
       : 1
-    context.drawImage(image, imageRect.x * iconScale, imageRect.y * iconScale,
+    context.drawImage(renderedImage, imageRect.x * iconScale, imageRect.y * iconScale,
       imageRect.width * iconScale, imageRect.height * iconScale)
     if (target.kind === 'golden') {
       const shimmerPeriod = 800 + target.effectSeed * 320
@@ -1043,13 +1037,10 @@ function frame(activeSession) {
 
     if (camera.state.active && game.state.phase !== 'FINISHED'
       && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
-      && video.currentTime !== lastVideoTime) {
+      && !handLandmarker.state.busy) {
       const detectionStart = performance.now()
-      const result = handLandmarker.detectForVideo(video, detectionStart)
-      lastVideoTime = video.currentTime
-      processResult(result, detectionStart)
-      const detectionEnd = performance.now()
-      updateDetectionStats(detectionEnd, detectionEnd - detectionStart)
+      const frameId = videoFrameId(video)
+      if (frameId !== lastVideoTime && handLandmarker.detectForVideo(video, detectionStart)) lastVideoTime = frameId
     }
 
     const renderNow = performance.now()
@@ -1090,13 +1081,6 @@ function frame(activeSession) {
 }
 
 async function initializeHandTracker() {
-  let vision
-  try {
-    vision = await FilesetResolver.forVisionTasks(WASM_ROOT)
-  } catch (error) {
-    console.error('MediaPipe WASM initialization failed:', error)
-    throw new Error('Could not load the hand tracking runtime. Check your internet connection.')
-  }
   let modelBuffer
   try {
     const response = await fetch(MODEL_URL)
@@ -1107,10 +1091,25 @@ async function initializeHandTracker() {
     throw new Error('Could not load the hand tracking model. Please try again.')
   }
   try {
-    return await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetBuffer: modelBuffer },
-      runningMode: 'VIDEO',
-      numHands: 1,
+    return await initializeInference({
+      wasmRoot: WASM_ROOT, modelBuffer,
+      onResult: (result, capturedAt, detectMs) => {
+        if (!camera.state.active || game.state.phase === 'FINISHED') return
+        try {
+          processResult(result, capturedAt)
+          updateDetectionStats(performance.now(), detectMs)
+          // Start from the latest frame as soon as inference frees up; no backlog.
+          if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            const frameId = videoFrameId(video)
+            if (frameId !== lastVideoTime && handLandmarker.detectForVideo(video, performance.now())) lastVideoTime = frameId
+          }
+        } catch (error) { handleCameraLoss(error) }
+      },
+      onError: error => {
+        handLandmarker?.close()
+        handLandmarker = null
+        handleCameraLoss(error)
+      },
     })
   } catch (error) {
     console.error('Hand Landmarker initialization failed:', error)
@@ -1159,6 +1158,7 @@ function showCameraError(message, context) {
 }
 
 function clearTrackingState() {
+  handLandmarker?.reset()
   resetPlayerTracking({ finger, hand, slash, rawTrail, anchorTrail })
   fingerDetected = false
   rawFingerSpeed = 0
