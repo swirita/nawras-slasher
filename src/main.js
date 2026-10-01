@@ -19,6 +19,7 @@ import { createReplayFlow } from './replay.js'
 import { createResetConfirmation, resetGameVisible } from './reset-game.js'
 import { createLeaderboard } from './leaderboard.js'
 import { createPlayerSession } from './player-session.js'
+import { createFinishedIdle } from './finished-idle.js'
 import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
 import './style.css'
 
@@ -64,6 +65,7 @@ const leaderboardList = document.querySelector('#leaderboard-list')
 const leaderboardEmpty = document.querySelector('#leaderboard-empty')
 const playAgainButton = document.querySelector('#play-again')
 const newPlayerButton = document.querySelector('#new-player')
+const finishedIdleCountdown = document.querySelector('#finished-idle-countdown')
 const soundButton = document.querySelector('#sound-toggle')
 const readyBrand = document.querySelector('#ready-brand')
 const playerEntry = document.querySelector('#player-entry')
@@ -111,6 +113,13 @@ const playerSession = createPlayerSession(leaderboard)
 const audio = createAudioSystem()
 const assets = { ready: false, error: null, images: new Map() }
 const developerUi = createDeveloperUi(debugPanel)
+const finishedIdle = createFinishedIdle({
+  onCountdown: (seconds) => {
+    finishedIdleCountdown.hidden = seconds === null
+    if (seconds !== null) setText(finishedIdleCountdown, `NEXT PLAYER IN ${seconds}`)
+  },
+  onExpire: () => enterNewPlayer(),
+})
 const camera = createCameraSession({
   video,
   getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
@@ -315,6 +324,7 @@ function armMouseIdle() {
 }
 
 function syncPhaseUi() {
+  if (game.state.phase !== 'FINISHED') finishedIdle.stop()
   app.dataset.phase = game.state.phase
   syncPlayerUi()
   resetGameButton.hidden = !resetGameVisible(game.state.phase)
@@ -401,6 +411,7 @@ function processGameEvents(now) {
         setText(finalComboValue, `x${summary.bestCombo}`)
         newHighScoreMessage.hidden = true
         syncPhaseUi()
+        finishedIdle.start()
         setStatus('')
         stage.classList.add('camera-fading')
         camera.scheduleRelease(() => releaseCamera({ keepScreen: true, keepLoop: true }),
@@ -1247,15 +1258,26 @@ const replayFlow = createReplayFlow({
     showCameraError('CAMERA UNAVAILABLE', 'replay')
   },
 })
-playAgainButton.addEventListener('click', () => { void replayFlow.replay() })
-newPlayerButton.addEventListener('click', () => {
+playAgainButton.addEventListener('click', () => {
+  if (game.state.phase === 'FINISHED') finishedIdle.stop()
+  void replayFlow.replay().then((started) => {
+    if (!started && game.state.phase === 'FINISHED') finishedIdle.start()
+  })
+})
+function enterNewPlayer() {
   if (game.state.phase !== 'FINISHED' || replayFlow.state.pending) return
+  finishedIdle.stop()
   playerSession.clearPlayer()
   cameraError.hidden = true
   releaseCamera()
   playerNameInput.value = ''
   playerNameError.hidden = true
   playerNameInput.focus()
+}
+newPlayerButton.addEventListener('click', enterNewPlayer)
+window.addEventListener('pointerdown', () => finishedIdle.activity(), { passive: true })
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) finishedIdle.check()
 })
 cameraRetryButton.addEventListener('click', async () => {
   if (cameraStartPromise || replayFlow.state.pending) return
@@ -1299,12 +1321,14 @@ goldenTestOption.value = 'golden'
 goldenTestOption.textContent = 'Golden Nawras'
 targetTypeSelect.append(goldenTestOption)
 document.addEventListener('keydown', (event) => {
+  finishedIdle.activity()
   if (developerUi.handleKeydown(event)) {
     if (!developerUi.state.visible) clearLeaderboardConfirmation.clear()
     updateDebug(performance.now(), true)
   }
 })
 document.addEventListener('pointermove', () => {
+  finishedIdle.activity()
   if (game.state.phase === 'PLAYING') armMouseIdle()
 })
 app.addEventListener('dragstart', (event) => event.preventDefault())

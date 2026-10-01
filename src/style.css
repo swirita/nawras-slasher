@@ -332,6 +332,8 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .leaderboard-score { color: inherit; font-variant-numeric: tabular-nums; }
 #leaderboard-empty { margin: 10px 0; color: #628295; text-align: center; font-size: 0.83rem; }
 .result-actions { display: flex; align-items: center; gap: 12px; margin-top: 9px; }
+.finished-idle-countdown { margin: 5px 0 0; color: #416e85; font-size: 0.72rem;
+  font-weight: 800; letter-spacing: 0.12em; }
 .new-high-score::before, .new-high-score::after { content: '✦'; position: absolute; top: -8px;
   color: #d8a329; font-size: 0.85rem; opacity: 0; animation: high-score-spark 0.8s ease-out 0.15s both; }
 .new-high-score::before { left: -22px; --spark-x: -9px; }
