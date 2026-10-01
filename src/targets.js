@@ -1,5 +1,5 @@
 import { segmentIntersectsCircle } from './geometry.js'
-import { selectWeightedTech, TECH_TARGET_BY_ID } from './catalog.js'
+import { selectWeightedTarget, TARGET_BY_ID } from './catalog.js'
 import { selectWebRushTech } from './web-rush.js'
 
 export const MAX_ACTIVE_TARGETS = 5
@@ -45,8 +45,8 @@ export function createTargetSystem(random = Math.random) {
     const isGolden = kind === 'golden' || (!kind && !catalogId && !predictable
       && elapsedMs >= GOLDEN_ELIGIBLE_AFTER_MS && random() < GOLDEN_TARGET_CHANCE)
     const definition = isGolden ? null : catalogId
-      ? TECH_TARGET_BY_ID.get(catalogId)
-      : (selectionMode === 'web-rush' ? selectWebRushTech : selectWeightedTech)(random, [
+      ? TARGET_BY_ID.get(catalogId)
+      : (selectionMode === 'web-rush' ? selectWebRushTech : selectWeightedTarget)(random, [
         ...excludedIds,
         ...(automaticRepeatCount >= 2 ? [lastAutomaticTechId] : []),
       ])
@@ -74,9 +74,9 @@ export function createTargetSystem(random = Math.random) {
       sliced: false,
       slicedAt: null,
       createdAt: now,
-      kind: isGolden ? 'golden' : 'normal',
+      kind: isGolden ? 'golden' : definition.type === 'penalty' ? 'bug' : 'normal',
       catalogId: isGolden ? 'golden' : definition.id,
-      basePoints: isGolden ? 50 : definition.basePoints,
+      basePoints: isGolden ? 50 : definition.basePoints ?? 0,
       visualScale: isGolden ? 1 : definition.visualScale,
     }
     if (!predictable && !catalogId && !kind) {

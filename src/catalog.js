@@ -15,15 +15,30 @@ export const TECH_TARGETS = Object.freeze([
 ].map((target) => Object.freeze(target)))
 
 export const TECH_TARGET_BY_ID = new Map(TECH_TARGETS.map((target) => [target.id, target]))
+export const BUG_TARGET = Object.freeze({
+  id: 'bug', label: 'Bug', asset: 'assets/bug.png', type: 'penalty',
+  penalty: 25, weight: 4, visualScale: 1,
+})
+export const ORDINARY_TARGETS = Object.freeze([...TECH_TARGETS, BUG_TARGET])
+export const TARGET_BY_ID = new Map(ORDINARY_TARGETS.map((target) => [target.id, target]))
 export const REQUIRED_ASSETS = Object.freeze([
   { id: 'wordmark', asset: WORDMARK_ASSET },
   { id: 'golden', asset: GOLDEN_ASSET },
   ...TECH_TARGETS.map(({ id, asset }) => ({ id, asset })),
+  { id: BUG_TARGET.id, asset: BUG_TARGET.asset },
 ])
 
 export function selectWeightedTech(random = Math.random, excludedIds = []) {
+  return selectWeightedFrom(TECH_TARGETS, random, excludedIds)
+}
+
+export function selectWeightedTarget(random = Math.random, excludedIds = []) {
+  return selectWeightedFrom(ORDINARY_TARGETS, random, excludedIds)
+}
+
+function selectWeightedFrom(pool, random, excludedIds) {
   const excluded = new Set(excludedIds)
-  const eligible = TECH_TARGETS.filter((target) => !excluded.has(target.id))
+  const eligible = pool.filter((target) => !excluded.has(target.id))
   if (!eligible.length) return null
   const total = eligible.reduce((sum, target) => sum + target.weight, 0)
   let roll = Math.max(0, Math.min(0.999999999, random())) * total

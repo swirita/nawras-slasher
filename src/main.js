@@ -10,10 +10,11 @@ import { createTargetSystem, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS, MAX_ACTIVE_TAR
 import { createGameSession, difficultyAt, formatTime } from './game.js'
 import { createAudioSystem, soundCueForEvent } from './audio.js'
 import { calloutPhaseAt, comboPresentation, displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
-import { REQUIRED_ASSETS, TECH_TARGETS, TECH_TARGET_BY_ID } from './catalog.js'
+import { REQUIRED_ASSETS, ORDINARY_TARGETS, TARGET_BY_ID } from './catalog.js'
 import { containedImageRect, sliceClipPolygon } from './rendering.js'
 import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
 import { createDeveloperUi } from './developer-ui.js'
+import { createFullscreenController } from './fullscreen.js'
 import { resetPlayerTracking } from './player-state.js'
 import { createReplayFlow } from './replay.js'
 import { createResetConfirmation, resetGameVisible } from './reset-game.js'
@@ -58,6 +59,7 @@ const roundMessage = document.querySelector('#round-message')
 const app = document.querySelector('.app')
 const stateCallout = document.querySelector('#state-callout')
 const comboIndicator = document.querySelector('#combo-indicator')
+const bugFeedback = document.querySelector('#bug-feedback')
 const timerStat = document.querySelector('#timer-stat')
 const finalScoreValue = document.querySelector('#final-score')
 const finalSlicedValue = document.querySelector('#final-sliced')
@@ -128,6 +130,11 @@ const frameMonitor = createPerformanceMonitor()
 const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
 const assets = { ready: false, error: null, images: new Map() }
 const developerUi = createDeveloperUi(debugPanel)
+const fullscreen = createFullscreenController({
+  document,
+  hint: document.querySelector('#fullscreen-hint'),
+  getPhase: () => game.state.phase,
+})
 const finishedIdle = createFinishedIdle({
   onCountdown: (seconds) => {
     finishedIdleCountdown.hidden = seconds === null
@@ -162,7 +169,6 @@ let handLandmarker = null
 let animationFrameId = null
 let cameraStartPromise = null
 let retryContext = 'initial'
-let mouseIdleTimer = null
 let sessionId = 0
 let lastVideoTime = -1
 let lastFrameTime = null
@@ -188,6 +194,7 @@ const floatingTexts = []
 const particles = []
 const reusableParticles = []
 let calloutUntil = 0
+let bugFeedbackUntil = 0
 let resultShownAt = null
 let beginningRound = false
 let roundRequestId = 0
@@ -329,7 +336,7 @@ function updateHud() {
   const rushDisabled = game.state.phase !== 'PLAYING' || game.state.webRushTriggered
     || game.state.remainingMs <= 15000
   if (webRushButton.disabled !== rushDisabled) webRushButton.disabled = rushDisabled
-  const showCombo = game.state.phase === 'PLAYING' && game.state.combo > 1
+  const showCombo = game.state.phase === 'PLAYING' && (game.state.combo > 1 || game.state.combo === 0)
   if (comboIndicator.hidden !== !showCombo) comboIndicator.hidden = !showCombo
   if (showCombo) {
     const next = comboPresentation(game.state.combo)
@@ -343,24 +350,15 @@ function updateHud() {
   }
 }
 
-function clearMouseIdle() {
-  if (mouseIdleTimer !== null) clearTimeout(mouseIdleTimer)
-  mouseIdleTimer = null
-  app.classList.remove('cursor-idle')
-}
-
-function armMouseIdle() {
-  clearMouseIdle()
-  if (game.state.phase !== 'PLAYING') return
-  mouseIdleTimer = setTimeout(() => {
-    if (game.state.phase === 'PLAYING') app.classList.add('cursor-idle')
-    mouseIdleTimer = null
-  }, 1700)
-}
-
 function syncPhaseUi() {
   if (game.state.phase !== 'FINISHED') finishedIdle.stop()
   app.dataset.phase = game.state.phase
+  fullscreen.sync()
+  if (game.state.phase !== 'PLAYING') {
+    bugFeedback.hidden = true
+    bugFeedback.classList.remove('exiting')
+    bugFeedbackUntil = 0
+  }
   syncPlayerUi()
   resetGameButton.hidden = !resetGameVisible(game.state.phase)
   if (!resetGameVisible(game.state.phase) && resetConfirmation.state.armed) resetConfirmation.clear()
@@ -370,8 +368,6 @@ function syncPhaseUi() {
     || !playerSession.state.currentPlayer
   resetRoundButton.hidden = game.state.phase === 'READY' || game.state.phase === 'FINISHED'
   spawnButton.disabled = game.state.phase !== 'PLAYING' || !camera.state.active
-  if (game.state.phase === 'PLAYING') armMouseIdle()
-  else clearMouseIdle()
   updateHud()
 }
 
@@ -402,6 +398,14 @@ function processGameEvents(now) {
       case 'target-sliced':
         floatingTexts.push({ ...event, at: now })
         createParticles(event, now)
+        updateHud()
+        break
+      case 'bug-hit':
+        floatingTexts.push({ ...event, at: now })
+        createParticles(event, now)
+        bugFeedback.hidden = false
+        bugFeedback.classList.remove('exiting')
+        bugFeedbackUntil = now + 800
         updateHud()
         break
       case 'combo-increase':
@@ -469,6 +473,7 @@ function createParticles(event, now) {
     particle.vy = Math.sin(angle) * speed - 25
     particle.at = now
     particle.golden = event.kind === 'golden'
+    particle.bug = event.kind === 'bug'
     particles.push(particle)
   }
 }
@@ -490,10 +495,13 @@ function drawEffects(now) {
     const fade = Math.max(0, 1 - (now - particle.at)
       / (particle.golden ? GOLDEN_PARTICLE_MS : PARTICLE_MS))
     context.beginPath()
-    context.arc(particle.x + particle.vx * age,
-      particle.y + particle.vy * age + 90 * age * age, particle.golden ? 3.5 : 2.8, 0, Math.PI * 2)
+    const x = particle.x + particle.vx * age
+    const y = particle.y + particle.vy * age + 90 * age * age
+    if (particle.bug) context.rect(x - 2, y - 1, 4, 2)
+    else context.arc(x, y, particle.golden ? 3.5 : 2.8, 0, Math.PI * 2)
     context.fillStyle = particle.golden
-      ? `rgba(240, 174, 45, ${fade})` : `rgba(40, 166, 207, ${fade})`
+      ? `rgba(240, 174, 45, ${fade})` : particle.bug
+        ? `rgba(179, 67, 49, ${fade})` : `rgba(40, 166, 207, ${fade})`
     context.fill()
   }
   for (const feedback of floatingTexts) {
@@ -503,11 +511,12 @@ function drawEffects(now) {
     context.font = `800 ${feedback.kind === 'golden' ? 30 : 26}px system-ui`
     context.textAlign = 'center'
     context.lineWidth = 4
-    context.strokeStyle = '#10263b'
-    context.fillStyle = feedback.kind === 'golden' ? '#ffe188' : '#fff'
+    context.strokeStyle = feedback.kind === 'bug' ? '#582b2a' : '#10263b'
+    context.fillStyle = feedback.kind === 'golden' ? '#ffe188' : feedback.kind === 'bug' ? '#ffc0b1' : '#fff'
     const y = feedback.y - 30 - age * 34
-    context.strokeText(`+${feedback.points}`, feedback.x, y)
-    context.fillText(`+${feedback.points}`, feedback.x, y)
+    const pointsLabel = feedback.kind === 'bug' ? `−${Math.abs(feedback.points)}` : `+${feedback.points}`
+    context.strokeText(pointsLabel, feedback.x, y)
+    context.fillText(pointsLabel, feedback.x, y)
     if (feedback.combo > 1) {
       context.font = '700 17px system-ui'
       context.strokeText(`×${feedback.scoreMultiplier}`, feedback.x, y + 21)
@@ -526,6 +535,14 @@ function updateEffects(now) {
     } else reusableParticles.push(particle)
   }
   particles.length = write
+  if (!bugFeedback.hidden) {
+    const phase = calloutPhaseAt(now, bugFeedbackUntil, 'bug')
+    if (phase === 'exiting') bugFeedback.classList.add('exiting')
+    else if (phase === 'hidden') {
+      bugFeedback.hidden = true
+      bugFeedback.classList.remove('exiting')
+    }
+  }
   if (!stateCallout.hidden) {
     const phase = calloutPhaseAt(now, calloutUntil, stateCallout.dataset.kind)
     if (phase === 'exiting') stateCallout.classList.add('exiting')
@@ -576,7 +593,7 @@ function updateDebug(now, force = false) {
   setText(collisionModeValue, targets.state.lastCollision?.mode ?? '—')
   setText(lastHitValue, targets.state.lastHit
     ? `${targets.state.lastHit.catalogId === 'golden' ? 'Golden Nawras'
-      : (TECH_TARGET_BY_ID.get(targets.state.lastHit.catalogId)?.label ?? 'Unknown')} `
+      : (TARGET_BY_ID.get(targets.state.lastHit.catalogId)?.label ?? 'Unknown')} `
       + `#${targets.state.lastHit.targetId} (${targets.state.lastHit.segmentType})`
     : '—')
   bridgeIndicator.hidden = slash.state.tracking !== 'DETECTED' || now >= slash.state.bridgedUntil
@@ -596,7 +613,7 @@ function resizeCanvas() {
     finger.reset()
     hand.reset()
     slash.reset()
-    targets.clearTargets()
+    // Live targets keep their CSS-pixel positions and physics across viewport changes.
     fingerDetected = false
     rawTrail.length = 0
     anchorTrail.length = 0
@@ -620,6 +637,12 @@ function drawTarget(target, now) {
   const radius = target.radius
   context.save()
   context.globalAlpha = target.sliced ? 1 - effect : 1
+  if (target.kind === 'bug' && target.sliced && effect < 0.45) {
+    context.beginPath()
+    context.arc(target.x, target.y, radius * 1.08, 0, Math.PI * 2)
+    context.fillStyle = `rgba(199, 79, 53, ${0.22 * (1 - effect / 0.45)})`
+    context.fill()
+  }
   if (target.kind === 'golden') {
     const age = Math.max(0, now - target.createdAt)
     const pulse = 1 + Math.sin(now * Math.PI * 2 / 850) * 0.075
@@ -718,7 +741,7 @@ function drawTarget(target, now) {
     context.beginPath()
     context.arc(target.x, target.y, radius * (0.8 + effect * 0.4), 0, Math.PI * 2)
     context.lineWidth = 4 * (1 - effect)
-    context.strokeStyle = target.kind === 'golden' ? '#ffe28a' : '#e7faff'
+    context.strokeStyle = target.kind === 'golden' ? '#ffe28a' : target.kind === 'bug' ? '#c75a43' : '#e7faff'
     context.stroke()
   } else {
     context.save()
@@ -939,7 +962,7 @@ function spawnWave(now) {
       lanePosition: groupSize === 1 ? null : index / (groupSize - 1),
       excludedIds: waveIds,
     })
-    if (target?.kind === 'normal') waveIds.push(target.catalogId)
+    if (target && target.kind !== 'golden') waveIds.push(target.catalogId)
   }
 }
 
@@ -1379,7 +1402,7 @@ webRushButton.addEventListener('click', () => {
   const now = performance.now()
   if (game.triggerWebRush(now)) processGameEvents(now)
 })
-for (const target of TECH_TARGETS) {
+for (const target of ORDINARY_TARGETS) {
   const option = document.createElement('option')
   option.value = target.id
   option.textContent = target.label
@@ -1391,6 +1414,7 @@ goldenTestOption.textContent = 'Golden Nawras'
 targetTypeSelect.append(goldenTestOption)
 document.addEventListener('keydown', (event) => {
   finishedIdle.activity()
+  fullscreen.handleKeydown(event)
   if (developerUi.handleKeydown(event)) {
     if (!developerUi.state.visible) clearLeaderboardConfirmation.clear()
     updateDebug(performance.now(), true)
@@ -1398,7 +1422,6 @@ document.addEventListener('keydown', (event) => {
 })
 document.addEventListener('pointermove', () => {
   finishedIdle.activity()
-  if (game.state.phase === 'PLAYING') armMouseIdle()
 })
 app.addEventListener('dragstart', (event) => event.preventDefault())
 for (const image of app.querySelectorAll('img')) image.draggable = false

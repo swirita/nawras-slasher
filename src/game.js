@@ -1,4 +1,4 @@
-import { TECH_TARGET_BY_ID } from './catalog.js'
+import { TECH_TARGET_BY_ID, BUG_TARGET } from './catalog.js'
 import { WEB_RUSH_CONFIG } from './web-rush.js'
 
 export const GAME_DURATION_MS = 90000
@@ -182,6 +182,19 @@ export function createGameSession() {
 
   function scoreTarget(target, now) {
     if (state.phase !== 'PLAYING' || !target || scoredIds.has(target.id)) return null
+    if (target.catalogId === BUG_TARGET.id) {
+      scoredIds.add(target.id)
+      const previousScore = state.score
+      state.score = Math.max(0, state.score - BUG_TARGET.penalty)
+      state.combo = 0
+      state.lastHitAt = null
+      const penalty = { type: 'bug-hit', targetId: target.id, kind: 'bug',
+        catalogId: BUG_TARGET.id, x: target.x, y: target.y,
+        points: -BUG_TARGET.penalty, deducted: previousScore - state.score,
+        combo: 0, scoreMultiplier: 1 }
+      events.push(penalty)
+      return penalty
+    }
     const basePoints = target.kind === 'golden'
       ? GOLDEN_POINTS : TECH_TARGET_BY_ID.get(target.catalogId)?.basePoints
     if (!basePoints) return null

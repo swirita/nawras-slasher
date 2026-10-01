@@ -10,6 +10,7 @@ export const CALLOUT_EXIT_MS = Object.freeze({
   go: 400,
   'web-rush': 400,
   finale: 450,
+  bug: 200,
 })
 
 export function calloutPhaseAt(now, visibleUntil, kind) {

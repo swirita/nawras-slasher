@@ -25,7 +25,7 @@ test('the nine tech definitions carry the configured scores, weights, and local 
   assert.equal(TECH_TARGET_BY_ID.has('golden'), false)
   assert.equal(TECH_TARGET_BY_ID.has('nawras'), false)
   assert.deepEqual(REQUIRED_ASSETS.map(({ id }) => id),
-    ['wordmark', 'golden', ...Object.keys(expected)])
+    ['wordmark', 'golden', ...Object.keys(expected), 'bug'])
   assert.ok(REQUIRED_ASSETS.some(({ asset }) => asset === GOLDEN_ASSET))
   assert.ok(REQUIRED_ASSETS.some(({ asset }) => asset === WORDMARK_ASSET))
   for (const { asset } of REQUIRED_ASSETS) {
