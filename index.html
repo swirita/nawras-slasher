@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#eaf4fb" />
     <meta name="description" content="Nawras Slasher — a webcam arcade game" />
+    <link rel="icon" href="./assets/nawras-small.png" />
     <title>Nawras Slasher</title>
   </head>
   <body>
@@ -24,10 +25,27 @@
         </div>
       </div>
 
+      <div class="top-decoration edge-decoration" aria-hidden="true">
+        <svg viewBox="0 0 1000 32" preserveAspectRatio="none" focusable="false">
+          <path class="edge-line" pathLength="1000" d="M 0 3 H 220 L 300 25 H 700 L 780 3 H 1000" />
+          <path class="edge-line" pathLength="1000" d="M 0 9 H 220 L 300 31 H 700 L 780 9 H 1000" />
+          <path class="edge-sweep" pathLength="1000" d="M 0 3 H 220 L 300 25 H 700 L 780 3 H 1000" />
+          <path class="edge-sweep" pathLength="1000" d="M 0 9 H 220 L 300 31 H 700 L 780 9 H 1000" />
+        </svg>
+      </div>
+      <div class="bottom-decoration edge-decoration" aria-hidden="true">
+        <svg viewBox="0 0 1000 12" preserveAspectRatio="none" focusable="false">
+          <path class="edge-line" pathLength="1000" d="M 0 2 H 1000" />
+          <path class="edge-line" pathLength="1000" d="M 0 8 H 1000" />
+          <path class="edge-sweep" pathLength="1000" d="M 0 2 H 1000" />
+          <path class="edge-sweep" pathLength="1000" d="M 0 8 H 1000" />
+        </svg>
+      </div>
+
       <header class="hud">
-        <div class="hud-brand" aria-hidden="true">NAWRAS SLASHER</div>
         <div class="hud-stats">
           <div class="hud-stat"><span>Score</span><strong id="score">0</strong></div>
+          <img id="hud-wordmark" class="hud-wordmark" alt="NawrasEdu" hidden />
           <div id="timer-stat" class="hud-stat"><span>Time</span><strong id="timer">01:30</strong></div>
         </div>
         <div class="hud-right">
@@ -64,6 +82,7 @@
         </select>
         <button id="spawn-target" class="debug-spawn" type="button" disabled>Spawn Test Target</button>
         <button id="trigger-web-rush" class="debug-spawn" type="button" disabled>Trigger Web Rush</button>
+        <button id="sound-toggle" class="debug-spawn sound-toggle" type="button" aria-pressed="true">SOUND ON</button>
         <button id="reset-round" class="debug-spawn" type="button" disabled>Reset Round</button>
         <button id="stop-camera" class="debug-spawn" type="button" hidden>Camera Off</button>
       </aside>
@@ -91,7 +110,6 @@
       <footer class="controls">
         <button id="start-camera" class="primary-button" type="button">ENABLE CAMERA</button>
         <button id="start-round" class="primary-button" type="button" disabled>START GAME</button>
-        <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true">SOUND ON</button>
       </footer>
     </main>
     <script type="module" src="/src/main.js"></script>

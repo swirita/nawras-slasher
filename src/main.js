@@ -57,6 +57,7 @@ const playAgainButton = document.querySelector('#play-again')
 const soundButton = document.querySelector('#sound-toggle')
 const readyBrand = document.querySelector('#ready-brand')
 const readyWordmark = document.querySelector('#ready-wordmark')
+const hudWordmark = document.querySelector('#hud-wordmark')
 const resultWordmark = document.querySelector('#result-wordmark')
 const status = document.querySelector('#status')
 const timerValue = document.querySelector('#timer')
@@ -182,8 +183,10 @@ async function preloadAssets() {
     assets.images = new Map(loaded)
     assets.ready = true
     readyWordmark.src = assets.images.get('wordmark').src
+    hudWordmark.src = assets.images.get('wordmark').src
     resultWordmark.src = assets.images.get('wordmark').src
     readyWordmark.hidden = false
+    hudWordmark.hidden = false
     resultWordmark.hidden = false
     refreshRoundStart()
   } catch (error) {

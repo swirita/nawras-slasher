@@ -1,0 +1,37 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { WORDMARK_ASSET } from '../src/catalog.js'
+
+const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
+const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+
+test('gameplay header keeps Score, centered NawrasEdu asset, and Time', () => {
+  assert.equal(WORDMARK_ASSET, 'assets/nawras-name.png')
+  const header = html.match(/<header class="hud">([\s\S]*?)<\/header>/)?.[1]
+  assert.ok(header)
+  assert.ok(header.indexOf('id="score"') < header.indexOf('id="hud-wordmark"'))
+  assert.ok(header.indexOf('id="hud-wordmark"') < header.indexOf('id="timer"'))
+  assert.match(header, /id="status"/)
+  assert.match(main, /hudWordmark\.src = assets\.images\.get\('wordmark'\)\.src/)
+  assert.match(css, /\.hud-stats[^}]*left: 50%; transform: translateX\(-50%\)/)
+  assert.match(css, /\.hud-wordmark[^}]*object-fit: contain/)
+})
+
+test('Sound toggle remains in hidden Debug and is absent from production controls', () => {
+  const debug = html.match(/<aside id="debug-panel"[^>]*hidden>([\s\S]*?)<\/aside>/)?.[1]
+  const controls = html.match(/<footer class="controls">([\s\S]*?)<\/footer>/)?.[1]
+  assert.ok(debug)
+  assert.ok(controls)
+  assert.match(debug, /id="sound-toggle"/)
+  assert.doesNotMatch(controls, /sound-toggle/)
+  assert.match(main, /soundButton\.addEventListener\('click'/)
+})
+
+test('decorations are noninteractive and light sweep respects reduced motion', () => {
+  assert.match(html, /class="top-decoration edge-decoration" aria-hidden="true"/)
+  assert.match(html, /class="bottom-decoration edge-decoration" aria-hidden="true"/)
+  assert.match(css, /\.edge-decoration[^}]*pointer-events: none/)
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.edge-sweep \{ animation: none; \}/)
+})
