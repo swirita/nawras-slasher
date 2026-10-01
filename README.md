@@ -22,13 +22,17 @@ Camera access needs browser permission and HTTPS or localhost. The Hand Landmark
 
 ## Controls
 
+- **Player entry:** enter a name (up to 16 characters) and press START or Enter. The camera request and normal countdown follow. A fresh page asks for a player again; active identity stays only in memory.
 - **ENABLE CAMERA:** request the webcam only after a player clicks it. The camera fades out over 400 ms when the round ends and all stream tracks are stopped 700 ms after TIME'S UP.
 - **START GAME:** show a 3, 2, 1 countdown; the 90-second timer and target spawning begin at SLASH!
 - The Start button becomes available after the camera tracker and all eleven local images load. If an image fails, the status shows an error and gameplay stays disabled.
-- **PLAY AGAIN:** reacquire the webcam, wait for video and tracking readiness, reset player and round state, then start the countdown automatically. No extra camera/start click is needed. A failed request keeps the result and shows TRY AGAIN. The session high score remains until page refresh.
+- **PLAY AGAIN:** keep the current player, reacquire the webcam, wait for video and tracking readiness, reset round state, then start the countdown automatically. No extra camera/start click is needed. A failed request keeps the result and shows TRY AGAIN. The session high score remains until page refresh.
+- **NEW PLAYER:** on the result screen, turn off the camera and return to name entry for the next participant. PLAY AGAIN keeps the current player; RESET GAME also keeps them while discarding the unfinished attempt.
 - **RESET GAME:** during PLAYING, click the subtle bottom-left control twice within two seconds to abandon the current attempt. This releases the camera and returns to READY without a completed result or high-score update. The previous completed session best and sound preference remain. The developer Reset Round control still resets the round while leaving the camera on for testing.
 - **SOUND ON / SOUND OFF:** available in the hidden developer panel. The choice lasts for the current page session. Master volume is 0.52. Audio starts only after a user interaction and gracefully falls silent if Web Audio is unavailable.
-- **Ctrl + Shift + D:** toggle the hidden developer panel. It starts hidden on every page load. The panel contains manual Camera Off and Reset Round controls, finger/hand diagnostics, target selection and test spawning, tracking overlays, and the HYBRID/FINGER ONLY comparison. These controls do not appear in the normal event interface.
+- **Ctrl + Shift + D:** toggle the hidden developer panel. It starts hidden on every page load. The panel contains manual Camera Off and Reset Round controls, a two-click CLEAR LEADERBOARD control, finger/hand diagnostics, target selection and test spawning, tracking overlays, and the HYBRID/FINGER ONLY comparison. These controls do not appear in the normal event interface.
+
+Completed rounds update a local Top 5 leaderboard. `localStorage` key `nawrasSlasherLeaderboard` holds up to 100 unique players' best completed scores; ties favor the earlier best-score time. Names match after trimming, collapsing internal whitespace, and lowercasing for comparison. The current player is not persisted. If storage is unavailable, ranking works in memory until the page closes. Staff clearing removes only this leaderboard key.
 
 The already loaded MediaPipe model, images, audio system, sound preference, and in-memory high score remain available between players. Only the physical MediaStream and transient player/round state are released or reset. During gameplay, the system mouse cursor hides after 1.7 seconds without pointer movement and reappears when the pointer moves.
 

@@ -17,6 +17,8 @@ import { createDeveloperUi } from './developer-ui.js'
 import { resetPlayerTracking } from './player-state.js'
 import { createReplayFlow } from './replay.js'
 import { createResetConfirmation, resetGameVisible } from './reset-game.js'
+import { createLeaderboard } from './leaderboard.js'
+import { createPlayerSession } from './player-session.js'
 import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
 import './style.css'
 
@@ -39,6 +41,7 @@ const cameraOffButton = document.querySelector('#stop-camera')
 const startRoundButton = document.querySelector('#start-round')
 const resetRoundButton = document.querySelector('#reset-round')
 const resetGameButton = document.querySelector('#reset-game')
+const clearLeaderboardButton = document.querySelector('#clear-leaderboard')
 const spawnButton = document.querySelector('#spawn-target')
 const webRushButton = document.querySelector('#trigger-web-rush')
 const targetTypeSelect = document.querySelector('#target-type')
@@ -55,9 +58,21 @@ const finalScoreValue = document.querySelector('#final-score')
 const finalSlicedValue = document.querySelector('#final-sliced')
 const finalComboValue = document.querySelector('#final-combo')
 const newHighScoreMessage = document.querySelector('#new-high-score')
+const personalBestMessage = document.querySelector('#personal-best')
+const resultPlayer = document.querySelector('#result-player')
+const leaderboardList = document.querySelector('#leaderboard-list')
+const leaderboardEmpty = document.querySelector('#leaderboard-empty')
 const playAgainButton = document.querySelector('#play-again')
+const newPlayerButton = document.querySelector('#new-player')
 const soundButton = document.querySelector('#sound-toggle')
 const readyBrand = document.querySelector('#ready-brand')
+const playerEntry = document.querySelector('#player-entry')
+const playerEntryStart = document.querySelector('#player-entry-start')
+const playerNameInput = document.querySelector('#player-name')
+const playerNameError = document.querySelector('#player-name-error')
+const readyPlayer = document.querySelector('#ready-player')
+const readyPlayerName = document.querySelector('#ready-player-name')
+const changePlayerButton = document.querySelector('#change-player')
 const readyWordmark = document.querySelector('#ready-wordmark')
 const hudWordmark = document.querySelector('#hud-wordmark')
 const resultWordmark = document.querySelector('#result-wordmark')
@@ -91,6 +106,8 @@ const hand = createHandMotionProcessor()
 const slash = createSlashTracker()
 const targets = createTargetSystem()
 const game = createGameSession()
+const leaderboard = createLeaderboard()
+const playerSession = createPlayerSession(leaderboard)
 const audio = createAudioSystem()
 const assets = { ready: false, error: null, images: new Map() }
 const developerUi = createDeveloperUi(debugPanel)
@@ -106,6 +123,14 @@ const resetConfirmation = createResetConfirmation({
     setText(resetGameButton, armed ? 'RESET?' : 'RESET GAME')
     resetGameButton.classList.toggle('armed', armed)
     resetGameButton.setAttribute('aria-label', armed ? 'Confirm reset game' : 'Reset game')
+  },
+})
+const clearLeaderboardConfirmation = createResetConfirmation({
+  isPlaying: () => developerUi.state.visible,
+  onConfirm: () => { leaderboard.clear(); renderLeaderboard() },
+  onChange: (armed) => {
+    setText(clearLeaderboardButton, armed ? 'CLEAR ALL?' : 'CLEAR LEADERBOARD')
+    clearLeaderboardButton.classList.toggle('armed', armed)
   },
 })
 
@@ -137,10 +162,53 @@ let calloutUntil = 0
 let resultShownAt = null
 let beginningRound = false
 let roundRequestId = 0
+let playerEntryStarting = false
 
 function setText(element, value) {
   const next = String(value)
   if (element.textContent !== next) element.textContent = next
+}
+
+function syncPlayerUi() {
+  const player = playerSession.state.currentPlayer
+  app.classList.toggle('needs-player', !player)
+  playerEntry.hidden = Boolean(player)
+  readyPlayer.hidden = !player
+  if (player) setText(readyPlayerName, player.name)
+  playerEntryStart.disabled = playerEntryStarting
+  changePlayerButton.disabled = playerEntryStarting
+}
+
+function renderLeaderboard() {
+  const top = leaderboard.top()
+  const rows = top.map((entry, index) => {
+    const row = document.createElement('li')
+    row.classList.toggle('current-player', entry.id === playerSession.state.currentPlayer?.id)
+    const place = document.createElement('span')
+    place.className = 'leaderboard-place'
+    setText(place, index + 1)
+    const name = document.createElement('span')
+    name.className = 'leaderboard-name'
+    setText(name, entry.name)
+    const score = document.createElement('strong')
+    score.className = 'leaderboard-score'
+    setText(score, NUMBER_FORMAT.format(entry.bestScore))
+    row.append(place, name, score)
+    return row
+  })
+  leaderboardList.replaceChildren(...rows)
+  leaderboardEmpty.hidden = top.length > 0
+}
+
+function renderPersonalResult(result) {
+  const player = playerSession.state.currentPlayer
+  setText(resultPlayer, player ? `PLAYER: ${player.name}` : '')
+  const rankLabel = result?.rank && result.rank > 5 ? ` · YOUR RANK #${result.rank}` : ''
+  setText(personalBestMessage, result
+    ? `PERSONAL BEST: ${NUMBER_FORMAT.format(result.bestScore)}${rankLabel}` : '')
+  setText(newHighScoreMessage, result?.status === 'first' ? '✦ FIRST SCORE! ✦'
+    : result?.status === 'improved' ? '✦ NEW PERSONAL BEST! ✦' : '')
+  renderLeaderboard()
 }
 
 function setStatus(message, isError = false) {
@@ -173,7 +241,7 @@ function preloadImage(url) {
 
 function refreshRoundStart() {
   startRoundButton.disabled = !camera.state.active || !handLandmarker || !assets.ready
-    || game.state.phase !== 'READY'
+    || game.state.phase !== 'READY' || !playerSession.state.currentPlayer
   syncPhaseUi()
   if (camera.state.active && handLandmarker && game.state.phase === 'READY') {
     setStatus(assets.ready ? 'Ready — press Start' : 'Loading game images…')
@@ -248,11 +316,13 @@ function armMouseIdle() {
 
 function syncPhaseUi() {
   app.dataset.phase = game.state.phase
+  syncPlayerUi()
   resetGameButton.hidden = !resetGameVisible(game.state.phase)
   if (!resetGameVisible(game.state.phase) && resetConfirmation.state.armed) resetConfirmation.clear()
   readyBrand.hidden = game.state.phase !== 'READY'
   roundMessage.hidden = game.state.phase !== 'FINISHED'
   startRoundButton.hidden = game.state.phase !== 'READY' || !camera.state.active || !handLandmarker
+    || !playerSession.state.currentPlayer
   resetRoundButton.hidden = game.state.phase === 'READY' || game.state.phase === 'FINISHED'
   spawnButton.disabled = game.state.phase !== 'PLAYING' || !camera.state.active
   if (game.state.phase === 'PLAYING') armMouseIdle()
@@ -317,6 +387,7 @@ function processGameEvents(now) {
       case 'new-high-score':
         break
       case 'round-finished':
+        renderPersonalResult(playerSession.recordFinishedRound(game.state.score))
         targets.clearTargets()
         slash.reset()
         stateCallout.hidden = true
@@ -354,7 +425,8 @@ function updateResultCountup(now) {
     displayedResultScore(game.state.score, now - resultShownAt)))
   if (now - resultShownAt >= RESULT_COUNTUP_MS && !roundMessage.classList.contains('settled')) {
     roundMessage.classList.add('settled')
-    newHighScoreMessage.hidden = !game.state.newHighScore
+    newHighScoreMessage.hidden = playerSession.state.lastCompleted?.status === 'unchanged'
+      || !playerSession.state.lastCompleted
   }
 }
 
@@ -986,6 +1058,7 @@ function handleCameraLoss(error = null) {
 }
 
 function startCamera() {
+  if (!playerSession.state.currentPlayer) return Promise.resolve(false)
   if (cameraStartPromise) return cameraStartPromise
   if (camera.state.active) return Promise.resolve(true)
   void audio.unlock().then(updateSoundButton)
@@ -1055,6 +1128,7 @@ function startCamera() {
 function resetRound() {
   roundRequestId += 1
   game.reset()
+  playerSession.clearRoundResult()
   resultShownAt = null
   roundMessage.classList.remove('settled')
   timerStat.classList.remove('tick-pulse')
@@ -1079,9 +1153,39 @@ updateSoundButton()
 preloadAssets()
 cameraOnButton.addEventListener('click', () => { retryContext = 'initial'; void startCamera() })
 cameraOffButton.addEventListener('click', () => releaseCamera())
+playerNameInput.addEventListener('input', () => { playerNameError.hidden = true })
+playerEntry.addEventListener('submit', async (event) => {
+  event.preventDefault()
+  if (playerEntryStarting || game.state.phase !== 'READY') return
+  const player = playerSession.selectPlayer(playerNameInput.value)
+  if (!player) {
+    playerNameError.hidden = false
+    playerNameInput.focus()
+    return
+  }
+  playerNameInput.value = player.name
+  playerNameError.hidden = true
+  playerEntryStarting = true
+  syncPhaseUi()
+  try {
+    if (await startCamera()) await beginRound()
+  } finally {
+    playerEntryStarting = false
+    syncPlayerUi()
+  }
+})
+changePlayerButton.addEventListener('click', () => {
+  if (game.state.phase !== 'READY' || playerEntryStarting) return
+  playerSession.clearPlayer()
+  releaseCamera()
+  cameraError.hidden = true
+  playerNameInput.value = ''
+  playerNameError.hidden = true
+  playerNameInput.focus()
+})
 async function beginRound() {
   if (beginningRound || !camera.state.active || !handLandmarker || !assets.ready
-    || game.state.phase !== 'READY') return
+    || game.state.phase !== 'READY' || !playerSession.state.currentPlayer) return
   beginningRound = true
   const requestId = roundRequestId
   startRoundButton.disabled = true
@@ -1108,6 +1212,7 @@ resetRoundButton.addEventListener('click', resetRound)
 resetGameButton.addEventListener('click', () => resetConfirmation.click())
 const replayFlow = createReplayFlow({
   canReplay: () => !cameraStartPromise && handLandmarker && assets.ready
+    && playerSession.state.currentPlayer
     && ['FINISHED', 'INTERRUPTED'].includes(game.state.phase),
   prepareCamera: () => {
     retryContext = 'replay'
@@ -1115,7 +1220,8 @@ const replayFlow = createReplayFlow({
     if (game.state.phase === 'FINISHED') {
       setText(finalScoreValue, NUMBER_FORMAT.format(game.state.score))
       roundMessage.classList.add('settled')
-      newHighScoreMessage.hidden = !game.state.newHighScore
+      newHighScoreMessage.hidden = playerSession.state.lastCompleted?.status === 'unchanged'
+        || !playerSession.state.lastCompleted
     }
     releaseCamera({ keepScreen: true })
     return startCamera()
@@ -1124,6 +1230,7 @@ const replayFlow = createReplayFlow({
   beginRound,
   onLoading: (loading) => {
     playAgainButton.disabled = loading
+    newPlayerButton.disabled = loading
     setText(playAgainButton, loading ? 'STARTING CAMERA...' : 'PLAY AGAIN')
   },
   onFailure: (error) => {
@@ -1132,6 +1239,15 @@ const replayFlow = createReplayFlow({
   },
 })
 playAgainButton.addEventListener('click', () => { void replayFlow.replay() })
+newPlayerButton.addEventListener('click', () => {
+  if (game.state.phase !== 'FINISHED' || replayFlow.state.pending) return
+  playerSession.clearPlayer()
+  cameraError.hidden = true
+  releaseCamera()
+  playerNameInput.value = ''
+  playerNameError.hidden = true
+  playerNameInput.focus()
+})
 cameraRetryButton.addEventListener('click', async () => {
   if (cameraStartPromise || replayFlow.state.pending) return
   cameraRetryButton.disabled = true
@@ -1147,6 +1263,7 @@ soundButton.addEventListener('click', () => {
   updateSoundButton()
   if (on) void audio.unlock().then(updateSoundButton)
 })
+clearLeaderboardButton.addEventListener('click', () => clearLeaderboardConfirmation.click())
 spawnButton.addEventListener('click', () => {
   if (!handLandmarker || !game.canSpawn()) return
   targets.spawn(canvas.clientWidth, canvas.clientHeight, performance.now(), {
@@ -1173,7 +1290,10 @@ goldenTestOption.value = 'golden'
 goldenTestOption.textContent = 'Golden Nawras'
 targetTypeSelect.append(goldenTestOption)
 document.addEventListener('keydown', (event) => {
-  if (developerUi.handleKeydown(event)) updateDebug(performance.now(), true)
+  if (developerUi.handleKeydown(event)) {
+    if (!developerUi.state.visible) clearLeaderboardConfirmation.clear()
+    updateDebug(performance.now(), true)
+  }
 })
 document.addEventListener('pointermove', () => {
   if (game.state.phase === 'PLAYING') armMouseIdle()
