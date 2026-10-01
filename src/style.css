@@ -128,14 +128,20 @@ button { font: inherit; }
 
 .hud { position: fixed; z-index: 10; top: 0; left: 0; right: 0; height: 110px;
   background: linear-gradient(rgb(5 18 31 / 72%), transparent); pointer-events: none; }
-.hud-stats { --hud-logo-width: clamp(112px, 16vw, 180px); --hud-card-width: clamp(68px, 8vw, 96px);
+.hud-stats { --hud-logo-width: clamp(112px, 16vw, 180px); --hud-card-width: clamp(68px, 9.5vw, 98px);
+  --hud-gap: clamp(12px, 3.2vw, 42px);
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
   display: grid; grid-template-columns: var(--hud-card-width) var(--hud-logo-width) var(--hud-card-width);
-  align-items: center; column-gap: clamp(8px, 2.5vw, 32px); }
+  align-items: center; column-gap: var(--hud-gap); }
 .hud-wordmark { display: block; width: 100%; height: auto; object-fit: contain; }
 .hud-stat {
   min-width: 0;
   width: 100%;
+  height: 62px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 8px 10px;
   border: 1px solid rgb(164 222 238 / 34%);
   border-bottom: 2px solid rgb(39 191 216 / 76%);
@@ -261,6 +267,9 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .state-callout[data-kind="finale"] { color: #a45f09; font-size: clamp(3.2rem, 8.4vw, 6.8rem);
   text-shadow: 0 0 25px rgb(241 190 77 / 61%), 0 3px 0 #fff; white-space: nowrap; }
 .state-callout.pop { animation: callout-pop 0.72s ease-out; }
+.state-callout.exiting { opacity: 0; transform: translateX(-50%) scale(0.97);
+  transition: opacity 400ms ease-out, transform 400ms ease-out; }
+.state-callout.exiting[data-kind="finale"] { transition-duration: 450ms; }
 @keyframes callout-pop {
   from { opacity: 0; transform: translateX(-50%) scale(0.64); }
   28% { opacity: 1; transform: translateX(-50%) scale(1.12); }
@@ -345,12 +354,13 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .new-high-score::before, .new-high-score::after { animation: none; }
   .app.web-rush .web-rush-atmosphere { animation: none; }
   .edge-sweep { animation: none; }
+  .state-callout.exiting { transform: translateX(-50%); }
   .controls .primary-button, #play-again { transition: none; }
 }
 
 @media (max-width: 700px) {
   .hud-stats { top: 13px; }
-  .hud-stat { padding: 6px 7px; }
+  .hud-stat { height: 52px; padding: 6px 7px; }
   .hud-stat strong { font-size: 1.25rem; }
   .hud-right { top: 114px; right: 16px; max-width: min(180px, 42vw); }
   .status { color: #315b72; font-size: 0.74rem; text-shadow: 0 1px 1px #fff; }

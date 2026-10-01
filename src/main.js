@@ -9,7 +9,7 @@ import {
 import { createTargetSystem, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS, MAX_ACTIVE_TARGETS } from './targets.js'
 import { createGameSession, difficultyAt, formatTime } from './game.js'
 import { createAudioSystem, soundCueForEvent } from './audio.js'
-import { displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
+import { calloutPhaseAt, displayedResultScore, resultSummary, RESULT_COUNTUP_MS } from './presentation.js'
 import { REQUIRED_ASSETS, TECH_TARGETS, TECH_TARGET_BY_ID } from './catalog.js'
 import { containedImageRect, sliceClipPolygon } from './rendering.js'
 import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
@@ -334,7 +334,7 @@ function showCallout(text, now, duration = 750, kind = '') {
   setText(stateCallout, text)
   stateCallout.dataset.kind = kind
   stateCallout.hidden = false
-  stateCallout.classList.remove('pop')
+  stateCallout.classList.remove('pop', 'exiting')
   void stateCallout.offsetWidth
   stateCallout.classList.add('pop')
   calloutUntil = now + duration
@@ -350,7 +350,7 @@ function processGameEvents(now) {
         break
       case 'round-start':
         nextSpawnAt = now + FIRST_SPAWN_DELAY_MS
-        showCallout('SLASH!', now, 820, 'go')
+        showCallout('START!', now, 820, 'go')
         syncPhaseUi()
         setStatus('Show your hand and slash the targets')
         break
@@ -391,6 +391,7 @@ function processGameEvents(now) {
         targets.clearTargets()
         slash.reset()
         stateCallout.hidden = true
+        stateCallout.classList.remove('exiting')
         resultShownAt = now
         roundMessage.classList.remove('settled')
         timerStat.classList.remove('tick-pulse')
@@ -472,7 +473,14 @@ function updateEffects(now) {
     }
   }
   particles.length = write
-  if (!stateCallout.hidden && now >= calloutUntil) stateCallout.hidden = true
+  if (!stateCallout.hidden) {
+    const phase = calloutPhaseAt(now, calloutUntil, stateCallout.dataset.kind)
+    if (phase === 'exiting') stateCallout.classList.add('exiting')
+    else if (phase === 'hidden') {
+      stateCallout.hidden = true
+      stateCallout.classList.remove('exiting')
+    }
+  }
 }
 
 function updateDebug(now, force = false) {
@@ -1137,6 +1145,7 @@ function resetRound() {
   floatingTexts.length = 0
   particles.length = 0
   stateCallout.hidden = true
+  stateCallout.classList.remove('exiting')
   calloutUntil = 0
   clearTrackingState()
   nextSpawnAt = 0
