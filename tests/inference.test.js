@@ -60,6 +60,29 @@ test('stale results are discarded instead of applying old hand positions',async(
   const f=fixture();f.driver.detectForVideo({},100);await tick();f.setTime(351);f.respond()
   assert.equal(f.results.length,0);assert.equal(f.driver.state.discarded,1)
   assert.equal(f.driver.state.busy,false)
+  assert.equal(f.driver.state.staleDiscarded,1)
+})
+
+test('result freshness rejects 151ms replies while accepting the 150ms display boundary', async () => {
+  const f=fixture()
+  f.driver.detectForVideo({},100);await tick();f.setTime(250);f.respond()
+  assert.equal(f.results.length,1)
+  f.driver.detectForVideo({},251);await tick();f.setTime(402);f.respond()
+  assert.equal(f.results.length,1)
+  assert.equal(f.driver.state.staleDiscarded,1)
+  assert.equal(f.driver.state.busy,false)
+})
+
+test('diagnostics distinguish model misses from successful but stale detections', async () => {
+  const f=fixture()
+  f.driver.detectForVideo({},100);await tick();f.setTime(120);f.respond()
+  assert.equal(f.driver.state.emptyReplies,1)
+  f.driver.detectForVideo({},121);await tick();f.setTime(300)
+  f.respond({result:{landmarks:[[{x:.5,y:.5}]]}})
+  assert.equal(f.driver.state.handReplies,1)
+  assert.equal(f.driver.state.staleHandReplies,1)
+  assert.equal(f.driver.state.staleDiscarded,1)
+  assert.equal(f.results.length,1)
 })
 test('closing the driver terminates its worker and releases a pending capture',async()=>{
   let resolve;const f=fixture(()=>new Promise(r=>resolve=r))

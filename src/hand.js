@@ -119,7 +119,8 @@ export function createHandMotionProcessor() {
     const fingerUnreliable = Boolean(offsetJump && state.handSpeed >= ESTIMATE_MIN_HAND_SPEED)
 
     if (candidateOffset && !fingerUnreliable) {
-      const blend = offsetFresh ? FINGER_OFFSET_ALPHA : 1
+      const blend = offsetFresh && continuous
+        ? 1 - (1 - FINGER_OFFSET_ALPHA) ** (elapsed / REFERENCE_FRAME_MS) : 1
       state.smoothedFingerOffset = state.smoothedFingerOffset && offsetFresh
         ? {
             x: state.smoothedFingerOffset.x + blend * (candidateOffset.x - state.smoothedFingerOffset.x),

@@ -25,6 +25,7 @@ import { createPlayerSession } from './player-session.js'
 import { createFinishedIdle } from './finished-idle.js'
 import { activeReadyAmbientCount, populateReadyAmbient } from './ready-ambient.js'
 import { createPerformanceMonitor } from './performance-monitor.js'
+import { createTrackingContinuity, INTERACTION_MAX_AGE_MS } from './tracking-continuity.js'
 import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
 import './style.css'
 
@@ -61,6 +62,13 @@ const roundMessage = document.querySelector('#round-message')
 const app = document.querySelector('.app')
 const stateCallout = document.querySelector('#state-callout')
 const comboIndicator = document.querySelector('#combo-indicator')
+let comboBreaking = false
+comboIndicator.addEventListener('animationend', event => {
+  if (event.animationName !== 'combo-break' || !comboBreaking) return
+  comboBreaking = false
+  comboIndicator.hidden = true
+  comboIndicator.classList.remove('breaking')
+})
 const timerStat = document.querySelector('#timer-stat')
 const finalScoreValue = document.querySelector('#final-score')
 const finalSlicedValue = document.querySelector('#final-sliced')
@@ -92,6 +100,18 @@ const fpsValue = document.querySelector('#fps-value')
 const detectMsValue = document.querySelector('#detect-ms')
 const trackingLatencyValue = document.querySelector('#tracking-latency')
 const inferencePendingValue = document.querySelector('#inference-pending')
+const resultAgeValue = document.querySelector('#result-age')
+const goodHandAgeValue = document.querySelector('#good-hand-age')
+const modelLossesValue = document.querySelector('#model-losses')
+const noHandResultsValue = document.querySelector('#no-hand-results')
+const invalidResultsValue = document.querySelector('#invalid-results')
+const staleResultsValue = document.querySelector('#stale-results')
+const modelHandRepliesValue = document.querySelector('#model-hand-replies')
+const modelEmptyRepliesValue = document.querySelector('#model-empty-replies')
+const staleHandRepliesValue = document.querySelector('#stale-hand-replies')
+const trackingReasonValue = document.querySelector('#tracking-reason')
+const collisionFreshValue = document.querySelector('#collision-fresh')
+const diagnosticsCopyButton = document.querySelector('#copy-tracking-diagnostics')
 const renderFpsValue = document.querySelector('#render-fps')
 const frameMsValue = document.querySelector('#frame-ms')
 const workMsValue = document.querySelector('#work-ms')
@@ -130,6 +150,8 @@ const leaderboard = createLeaderboard()
 const playerSession = createPlayerSession(leaderboard)
 const audio = createAudioSystem()
 const frameMonitor = createPerformanceMonitor()
+const continuity = createTrackingContinuity()
+const trackingSamples = []
 const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
 const assets = { ready: false, error: null, images: new Map() }
 const developerUi = createDeveloperUi(debugPanel)
@@ -345,6 +367,13 @@ async function preloadAssets() {
   }
 }
 
+function breakComboIndicator() {
+  if (comboIndicator.hidden || comboBreaking) return
+  comboBreaking = true
+  comboIndicator.classList.remove('bump')
+  comboIndicator.classList.add('breaking')
+}
+
 function updateHud() {
   const displayedSecond = Math.ceil(game.state.remainingMs / 1000)
   if (displayedSecond !== lastHudSecond) {
@@ -362,9 +391,14 @@ function updateHud() {
   const rushDisabled = game.state.phase !== 'PLAYING' || game.state.webRushTriggered
     || game.state.remainingMs <= 15000
   if (webRushButton.disabled !== rushDisabled) webRushButton.disabled = rushDisabled
-  const showCombo = game.state.phase === 'PLAYING' && (game.state.combo > 1 || game.state.combo === 0)
+  if (comboBreaking && (game.state.combo > 0 || game.state.phase !== 'PLAYING')) {
+    comboBreaking = false
+    comboIndicator.classList.remove('breaking')
+  }
+  const showCombo = game.state.phase === 'PLAYING'
+    && (game.state.combo > 1 || (comboBreaking && game.state.combo === 0))
   if (comboIndicator.hidden !== !showCombo) comboIndicator.hidden = !showCombo
-  if (showCombo) {
+  if (showCombo && !comboBreaking) {
     const next = comboPresentation(game.state.combo)
     if (comboIndicator.textContent !== next) {
       setText(comboIndicator, next)
@@ -443,6 +477,7 @@ function processGameEvents(now) {
         floatingTexts.push({ ...event, at: now })
         createParticles(event, now)
         bugImpactAt = now
+        breakComboIndicator()
         updateHud()
         break
       case 'combo-increase':
@@ -587,7 +622,33 @@ function updateDebug(now, force = false) {
   lastDebugAt = now
   setText(trackingLatencyValue, (handLandmarker?.state.latencyMs ?? 0).toFixed(1))
   setText(inferencePendingValue, Number(handLandmarker?.state.busy ?? false))
+  const tracking = continuity.tick(now)
+  const resultAge = tracking.lastResultAt === null ? null : now - tracking.lastResultAt
+  const reason = handLandmarker?.state.lastReplyStale ? 'STALE_RESULT'
+    : tracking.hasHand && tracking.goodAgeMs > INTERACTION_MAX_AGE_MS
+      ? handLandmarker?.state.busy ? 'INFERENCE_PENDING' : 'RESULT_GAP' : tracking.reason
+  setText(resultAgeValue, resultAge === null ? '—' : resultAge.toFixed(1))
+  setText(goodHandAgeValue, Number.isFinite(tracking.goodAgeMs) ? tracking.goodAgeMs.toFixed(1) : '—')
+  setText(modelLossesValue, tracking.detectionLosses)
+  setText(noHandResultsValue, tracking.noHandResults)
+  setText(invalidResultsValue, tracking.invalidResults)
+  setText(staleResultsValue, (handLandmarker?.state.staleDiscarded ?? 0) + tracking.staleResults)
+  setText(modelHandRepliesValue, handLandmarker?.state.handReplies ?? 0)
+  setText(modelEmptyRepliesValue, handLandmarker?.state.emptyReplies ?? 0)
+  setText(staleHandRepliesValue, handLandmarker?.state.staleHandReplies ?? 0)
+  setText(trackingReasonValue, reason)
+  setText(collisionFreshValue, tracking.canCollide ? 'YES' : 'NO')
   const frameStats = frameMonitor.snapshot()
+  // Opt-in diagnostics only while Debug is open: one bounded sample per 250ms.
+  trackingSamples.push({ at: now, ...frameStats, inferenceMs: handLandmarker?.state.detectMs ?? 0,
+    resultAgeMs: resultAge, deliveryAgeMs: tracking.resultAgeMs, goodHandAgeMs: tracking.goodAgeMs,
+    detectionLosses: tracking.detectionLosses, noHandResults: tracking.noHandResults,
+    invalidResults: tracking.invalidResults, staleDiscarded: handLandmarker?.state.staleDiscarded ?? 0,
+    handReplies: handLandmarker?.state.handReplies ?? 0, emptyReplies: handLandmarker?.state.emptyReplies ?? 0,
+    staleHandReplies: handLandmarker?.state.staleHandReplies ?? 0,
+    cursorVisible: tracking.cursorVisible, canCollide: tracking.canCollide, reason,
+    activeTargets: targets.activeCount(), inFlight: Number(handLandmarker?.state.busy ?? false) })
+  if (trackingSamples.length > 240) trackingSamples.shift()
   setText(renderFpsValue, Math.round(frameStats.renderedFps))
   setText(frameMsValue, frameStats.averageFrameMs.toFixed(1))
   setText(workMsValue, frameStats.averageWorkMs.toFixed(1))
@@ -641,6 +702,9 @@ function resizeCanvas() {
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
 
   if (displayWidth && displayHeight && (width !== displayWidth || height !== displayHeight)) {
+    handLandmarker?.reset()
+    continuity.reset()
+    lastVideoTime = -1
     finger.reset()
     hand.reset()
     slash.reset()
@@ -886,12 +950,16 @@ function drawScene(now) {
     }
   }
 
-  const ghost = slash.state.predictionActive
-  const cursor = ghost ? slash.state.predictedPoint ?? finger.state.smooth : finger.state.smooth
-  if (!cursor || (!fingerDetected && !ghost)) return
-  const opacity = ghost && slash.state.lastReliableAt !== null
-    ? Math.max(0, 1 - (now - slash.state.lastReliableAt) / PREDICTION_MAX_MS)
-    : 1
+  const tracking = continuity.tick(now)
+  const ghost = slash.state.predictionActive && tracking.canCollide
+  if (ghost && slash.state.predictedPoint && tracking.pointer) {
+    // Hold the last displayed point when prediction expires, avoiding a jump back.
+    tracking.pointer.x = slash.state.predictedPoint.x
+    tracking.pointer.y = slash.state.predictedPoint.y
+  }
+  const cursor = tracking.pointer
+  if (!cursor || !tracking.cursorVisible) return
+  const opacity = tracking.cursorOpacity
   if (opacity <= 0) return
   context.globalAlpha = opacity
   context.beginPath()
@@ -909,7 +977,8 @@ function drawScene(now) {
 }
 
 function applySlashSegment(segment, now) {
-  if (!segment || game.state.phase !== 'PLAYING') return
+  if (!segment || game.state.phase !== 'PLAYING' || !continuity.tick(now).canCollide) return
+  if (!Number.isFinite(segment.at) || now - segment.at > INTERACTION_MAX_AGE_MS || segment.at > now) return
   const hits = targets.hitWithSegment(segment, now)
   if (!hits.length) return
   const dx = segment.to.x - segment.from.x
@@ -923,7 +992,7 @@ function applySlashSegment(segment, now) {
   processGameEvents(now)
 }
 
-function processResult(result, now) {
+function processResult(result, now, receivedAt = performance.now()) {
   const landmarks = result.landmarks[0]
   const tip = landmarks?.[8]
   const rawPoint = tip && Number.isFinite(tip.x) && Number.isFinite(tip.y)
@@ -936,6 +1005,15 @@ function processResult(result, now) {
     displayWidth, displayHeight,
   )
   const diagonal = displayDiagonal
+  const observation = continuity.observe(rawPoint, now, receivedAt, Boolean(landmarks))
+  if (!observation.accepted) return
+  if (observation.reset) {
+    // No segment, velocity, or smoothing history may bridge a real detection gap.
+    finger.reset()
+    hand.reset()
+    slash.reset()
+    rawTrail.length = anchorTrail.length = 0
+  }
   const handSample = landmarks ? hand.sample(anchor, rawPoint, now, diagonal) : null
   if (landmarks && slash.state.motionSource === 'HYBRID') slash.observeMotion(handSample.motion)
   const point = slash.state.motionSource === 'HYBRID' ? handSample?.point : rawPoint
@@ -971,15 +1049,16 @@ function processResult(result, now) {
     for (const sample of samples) {
       const motion = slash.state.motionSource === 'HYBRID' ? handSample.motion : undefined
       const { segment } = slash.detected(sample.point, sample.at, diagonal, motion)
-      applySlashSegment(segment, now)
+      applySlashSegment(segment, receivedAt)
     }
+    continuity.setPointer(finger.state.smooth)
     if (finger.state.pending && (slash.state.motionSource === 'FINGER ONLY'
       || !handSample.motion?.offsetFresh)) slash.disarm()
     setStatus('Hand detected')
   } else {
     finger.state.pending = null
     if (!landmarks) hand.markMissing()
-    applySlashSegment(slash.missing(now), now)
+    applySlashSegment(slash.missing(now), receivedAt)
     setStatus(slash.state.predictionActive ? 'Predicting slash…'
       : slash.state.tracking === 'GRACE' ? 'Tracking briefly lost…' : 'Show your hand')
   }
@@ -1046,21 +1125,21 @@ function frame(activeSession) {
     const renderNow = performance.now()
     while (rawTrail.length && renderNow - rawTrail[0].at > 300) rawTrail.shift()
     while (anchorTrail.length && renderNow - anchorTrail[0].at > 300) anchorTrail.shift()
-    applySlashSegment(slash.tick(renderNow), renderNow)
-    if (slash.state.tracking !== 'DETECTED') {
-      fingerDetected = false
+    const tracking = continuity.tick(renderNow)
+    applySlashSegment(slash.tick(continuity.clock(renderNow)), renderNow)
+    if (!tracking.hasHand || !tracking.cursorVisible) {
       if (game.state.phase !== 'FINISHED') setStatus(slash.state.predictionActive
         ? 'Predicting slash…'
         : slash.state.tracking === 'GRACE' ? 'Tracking briefly lost…' : 'Show your hand')
     }
-    if (slash.state.tracking === 'LOST' && !slash.state.predictionActive) {
+    if (!tracking.cursorVisible && slash.state.tracking === 'LOST' && !slash.state.predictionActive) {
       if (!fingerDetected && finger.state.raw) finger.reset()
       if (!fingerDetected && hand.state.rawHandAnchor) hand.reset()
     }
     updateHud()
     updateResultCountup(renderNow)
     updateEffects(renderNow)
-    const hasVisual = fingerDetected || slash.state.predictionActive
+    const hasVisual = tracking.cursorVisible || slash.state.predictionActive
       || slash.state.trail.length > 0 || targets.state.targets.length > 0
       || floatingTexts.length > 0 || particles.length > 0
       || (showRawPath && !debugPanel.hidden && (rawTrail.length > 0 || anchorTrail.length > 0))
@@ -1159,6 +1238,7 @@ function showCameraError(message, context) {
 
 function clearTrackingState() {
   handLandmarker?.reset()
+  continuity.reset()
   resetPlayerTracking({ finger, hand, slash, rawTrail, anchorTrail })
   fingerDetected = false
   rawFingerSpeed = 0
@@ -1353,6 +1433,10 @@ async function beginRound() {
   slash.reset()
   finger.reset()
   hand.reset()
+  continuity.reset()
+  handLandmarker?.reset()
+  lastVideoTime = -1
+  trackingSamples.length = 0
   fingerDetected = false
   rawTrail.length = 0
   anchorTrail.length = 0
@@ -1425,6 +1509,19 @@ cameraRetryButton.addEventListener('click', async () => {
     await startCamera()
   }
 })
+diagnosticsCopyButton.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify({
+      camera: { width: video.videoWidth, height: video.videoHeight },
+      thresholds: { detection: 0.5, presence: 0.5, tracking: 0.5 },
+      inference: handLandmarker?.state ?? null,
+      samples: trackingSamples,
+    }, null, 2))
+    setText(diagnosticsCopyButton, 'Tracking diagnostics copied')
+  } catch {
+    setText(diagnosticsCopyButton, 'Clipboard unavailable — use the Debug values')
+  }
+})
 soundButton.addEventListener('click', () => {
   const on = audio.setEnabled(!audio.state.enabled)
   updateSoundButton()
@@ -1479,6 +1576,9 @@ motionSourceToggle.addEventListener('click', () => {
   slash.setMotionSource(slash.state.motionSource === 'HYBRID' ? 'FINGER ONLY' : 'HYBRID')
   finger.reset()
   hand.reset()
+  continuity.reset()
+  handLandmarker?.reset()
+  lastVideoTime = -1
   rawTrail.length = 0
   anchorTrail.length = 0
   rawFingerSpeed = 0

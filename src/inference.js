@@ -1,3 +1,5 @@
+import { RESULT_MAX_AGE_MS } from './tracking-continuity.js'
+
 // One capture/inference at a time. Busy frames are skipped, never queued.
 export function videoFrameId(video) {
   // currentTime interpolates between decoded frames in Chromium.
@@ -5,9 +7,10 @@ export function videoFrameId(video) {
 }
 
 export function createInferenceDriver({ worker, capture = createImageBitmap,
-  now = () => performance.now(), onResult, onError, maxResultAgeMs = 250 }) {
+  now = () => performance.now(), onResult, onError, maxResultAgeMs = RESULT_MAX_AGE_MS }) {
   const state = { busy: false, completed: 0, skipped: 0, discarded: 0,
-    detectMs: 0, latencyMs: 0, maxPending: 0 }
+    detectMs: 0, latencyMs: 0, maxPending: 0, staleDiscarded: 0,
+    handReplies: 0, emptyReplies: 0, staleHandReplies: 0, lastReplyStale: false }
   let generation = 0, sequence = 0, pending = null, closed = false
   worker.onmessage = ({ data }) => {
     if (data.type !== 'result' && data.type !== 'error') return
@@ -19,7 +22,15 @@ export function createInferenceDriver({ worker, capture = createImageBitmap,
     state.detectMs = data.detectMs
     state.latencyMs = now() - request.at
     state.completed++
-    if (state.latencyMs > maxResultAgeMs) { state.discarded++; return }
+    const hasHand = Boolean(data.result.landmarks?.length)
+    state.lastReplyStale = state.latencyMs > maxResultAgeMs
+    if (hasHand) state.handReplies++
+    else state.emptyReplies++
+    if (state.lastReplyStale) {
+      state.discarded++; state.staleDiscarded++
+      if (hasHand) state.staleHandReplies++
+      return
+    }
     onResult(data.result, request.at, data.detectMs, state.latencyMs)
   }
   worker.onerror = error => { if (!closed) { state.busy = false; pending = null; onError(error) } }
@@ -41,7 +52,7 @@ export function createInferenceDriver({ worker, capture = createImageBitmap,
     })
     return true
   }
-  function reset() { generation++ }
+  function reset() { generation++; state.lastReplyStale = false }
   function close() {
     closed = true; generation++; pending = null; state.busy = false
     worker.terminate(); worker.onmessage = null; worker.onerror = null

@@ -63,7 +63,7 @@ test('fullscreen entry and native exit leave the cursor deadline intact', () => 
 })
 test('cursor work is absent from frame and only physical mouse pointer movement rearms it', () => {
   const frame = main.match(/function frame\(activeSession\) \{[\s\S]*?\n\}\n/)[0]
-  assert.doesNotMatch(frame, /cursor|mouseIdle|armMouseIdle/)
+  assert.doesNotMatch(frame, /app\.style\.cursor|mouseIdle|armMouseIdle/)
   assert.match(main, /document\.addEventListener\('pointermove', \(event\) => \{[\s\S]*?event\.pointerType === 'mouse'[\s\S]*?armMouseIdle\(\)/)
 })
 

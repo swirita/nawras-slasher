@@ -433,3 +433,12 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
   .hud-stats { --hud-card-drop: 8px; }
 }
 .app.needs-player .controls { display: none; }
+.combo-indicator.breaking {
+  color: #e6232d;
+  text-shadow: none;
+  animation: combo-break 480ms ease-out forwards;
+}
+@keyframes combo-break {
+  0%, 25% { opacity: 1; }
+  100% { opacity: 0; }
+}

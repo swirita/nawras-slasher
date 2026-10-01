@@ -9,6 +9,8 @@ self.onmessage = async ({ data }) => {
         baseOptions: { modelAssetBuffer: data.modelBuffer, delegate: 'GPU' },
         canvas: new OffscreenCanvas(640, 480),
         runningMode: 'VIDEO', numHands: 1,
+        minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
       }
       try { tracker = await HandLandmarker.createFromOptions(vision, options) }
       catch {

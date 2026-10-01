@@ -73,6 +73,12 @@
         <div><span>Slow frames &gt;25 ms</span><strong id="slow-frames">0</strong></div>
         <div><span>Inference</span><strong><span id="fps-value">0</span> FPS / <span id="detect-ms">0.0</span> ms</strong></div>
         <div><span>Tracking latency</span><strong><span id="tracking-latency">0.0</span> ms / <span id="inference-pending">0</span> in flight</strong></div>
+        <div><span>Result / good hand age</span><strong><span id="result-age">—</span> / <span id="good-hand-age">—</span> ms</strong></div>
+        <div><span>Detection losses / no-hand / invalid</span><strong><span id="model-losses">0</span> / <span id="no-hand-results">0</span> / <span id="invalid-results">0</span></strong></div>
+        <div><span>Stale results dropped</span><strong id="stale-results">0</strong></div>
+        <div><span>Model hand / empty / stale hand replies</span><strong><span id="model-hand-replies">0</span> / <span id="model-empty-replies">0</span> / <span id="stale-hand-replies">0</span></strong></div>
+        <div><span>Tracking reason / collision fresh</span><strong><span id="tracking-reason">NO_RESULT</span> / <span id="collision-fresh">NO</span></strong></div>
+        <button id="copy-tracking-diagnostics" class="debug-spawn" type="button">Copy tracking diagnostics</button>
         <div><span>Gameplay particles</span><strong id="gameplay-particles">0</strong></div>
         <div><span>Slice fragments</span><strong id="slice-fragments">0</strong></div>
         <div><span>Slash segments</span><strong id="slash-segments">0</strong></div>
