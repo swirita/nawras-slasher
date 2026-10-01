@@ -99,6 +99,15 @@ button { font: inherit; }
 .bottom-decoration { bottom: max(16px, env(safe-area-inset-bottom)); height: 12px; }
 .app[data-phase="READY"] .edge-decoration,
 .app[data-phase="FINISHED"] .edge-decoration { display: none; }
+.reset-game { position: fixed; z-index: 11; left: clamp(16px, 2.5vw, 36px);
+  bottom: max(42px, calc(env(safe-area-inset-bottom) + 42px)); min-height: 34px;
+  padding: 7px 12px; border: 1px solid rgb(43 121 150 / 38%); border-radius: 8px;
+  background: rgb(232 247 252 / 68%); color: #2b5b70; cursor: pointer;
+  font: 750 0.72rem system-ui; letter-spacing: 0.05em; backdrop-filter: blur(5px); }
+.reset-game:hover { background: rgb(232 247 252 / 88%); border-color: rgb(28 139 173 / 65%); }
+.reset-game.armed { border-color: rgb(167 110 31 / 69%);
+  background: rgb(255 242 210 / 88%); color: #785012; }
+.reset-game:focus-visible { outline: 3px solid #145b77; outline-offset: 3px; }
 
 .hud { position: fixed; z-index: 10; top: 0; left: 0; right: 0; height: 110px;
   background: linear-gradient(rgb(5 18 31 / 72%), transparent); pointer-events: none; }

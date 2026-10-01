@@ -16,6 +16,7 @@ import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
 import { createDeveloperUi } from './developer-ui.js'
 import { resetPlayerTracking } from './player-state.js'
 import { createReplayFlow } from './replay.js'
+import { createResetConfirmation, resetGameVisible } from './reset-game.js'
 import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
 import './style.css'
 
@@ -37,6 +38,7 @@ const cameraOnButton = document.querySelector('#start-camera')
 const cameraOffButton = document.querySelector('#stop-camera')
 const startRoundButton = document.querySelector('#start-round')
 const resetRoundButton = document.querySelector('#reset-round')
+const resetGameButton = document.querySelector('#reset-game')
 const spawnButton = document.querySelector('#spawn-target')
 const webRushButton = document.querySelector('#trigger-web-rush')
 const targetTypeSelect = document.querySelector('#target-type')
@@ -96,6 +98,15 @@ const camera = createCameraSession({
   video,
   getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
   onUnexpectedEnd: () => handleCameraLoss(),
+})
+const resetConfirmation = createResetConfirmation({
+  isPlaying: () => resetGameVisible(game.state.phase),
+  onConfirm: () => releaseCamera(),
+  onChange: (armed) => {
+    setText(resetGameButton, armed ? 'RESET?' : 'RESET GAME')
+    resetGameButton.classList.toggle('armed', armed)
+    resetGameButton.setAttribute('aria-label', armed ? 'Confirm reset game' : 'Reset game')
+  },
 })
 
 let handLandmarker = null
@@ -237,6 +248,8 @@ function armMouseIdle() {
 
 function syncPhaseUi() {
   app.dataset.phase = game.state.phase
+  resetGameButton.hidden = !resetGameVisible(game.state.phase)
+  if (!resetGameVisible(game.state.phase) && resetConfirmation.state.armed) resetConfirmation.clear()
   readyBrand.hidden = game.state.phase !== 'READY'
   roundMessage.hidden = game.state.phase !== 'FINISHED'
   startRoundButton.hidden = game.state.phase !== 'READY' || !camera.state.active || !handLandmarker
@@ -1092,6 +1105,7 @@ async function beginRound() {
 }
 startRoundButton.addEventListener('click', beginRound)
 resetRoundButton.addEventListener('click', resetRound)
+resetGameButton.addEventListener('click', () => resetConfirmation.click())
 const replayFlow = createReplayFlow({
   canReplay: () => !cameraStartPromise && handLandmarker && assets.ready
     && ['FINISHED', 'INTERRUPTED'].includes(game.state.phase),
