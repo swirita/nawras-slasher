@@ -1,5 +1,10 @@
 export const READY_AMBIENT_COUNT = 26
 
+export function activeReadyAmbientCount(width, enabled) {
+  if (!enabled) return 0
+  return width <= 700 ? 14 : width <= 1100 ? 20 : READY_AMBIENT_COUNT
+}
+
 const COLORS = ['#168fb2', '#2aa7c7', '#268ab8', '#43b7d1']
 
 export function ambientParticleSpec(index, random = Math.random) {

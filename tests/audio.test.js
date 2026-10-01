@@ -106,3 +106,32 @@ test('an audio initialization failure cannot stop round events', async () => {
     console.warn = warn
   }
 })
+
+test('short-lived sound nodes disconnect after playback', async () => {
+  class TrackedAudioContext extends FakeAudioContext {
+    constructor() {
+      super()
+      this.nodes = []
+      TrackedAudioContext.instance = this
+    }
+    track(node) {
+      node.disconnectCount = 0
+      node.disconnect = () => { node.disconnectCount += 1 }
+      this.nodes.push(node)
+      return node
+    }
+    createGain() { return this.track(super.createGain()) }
+    createOscillator() { return this.track(super.createOscillator()) }
+    createBiquadFilter() { return this.track(super.createBiquadFilter()) }
+    createBufferSource() { return this.track(super.createBufferSource()) }
+  }
+  const audio = createAudioSystem({ AudioContextClass: TrackedAudioContext })
+  await audio.unlock()
+  assert.equal(audio.cue('normal-slice'), true)
+  const context = TrackedAudioContext.instance
+  const sources = context.nodes.filter((node) => typeof node.onended === 'function')
+  assert.equal(sources.length, 2)
+  for (const source of sources) source.onended()
+  assert.equal(context.nodes[0].disconnectCount, 0) // Shared master remains connected.
+  assert.ok(context.nodes.slice(1).every((node) => node.disconnectCount === 1))
+})

@@ -248,6 +248,10 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .camera-error button { min-height: 50px; padding: 12px 28px; border: 1px solid #dbac45;
   border-radius: 10px; font-weight: 800; cursor: pointer; }
 .debug-panel div { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; color: #bdd0dd; }
+.debug-panel h3 { margin: 4px 0 10px; color: #9fdae9; font-size: 0.7rem;
+  letter-spacing: 0.13em; }
+.debug-panel h3:not(:first-child) { margin-top: 16px; border-top: 1px solid rgb(170 220 238 / 18%);
+  padding-top: 12px; }
 .debug-panel strong { color: #fff; text-align: right; font-variant-numeric: tabular-nums; }
 .debug-panel .bridge-indicator { display: block; color: #ffe6a4; }
 .debug-spawn { width: 100%; margin-top: 10px; font-size: 0.8rem; }

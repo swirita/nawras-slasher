@@ -20,7 +20,8 @@ import { createResetConfirmation, resetGameVisible } from './reset-game.js'
 import { createLeaderboard } from './leaderboard.js'
 import { createPlayerSession } from './player-session.js'
 import { createFinishedIdle } from './finished-idle.js'
-import { populateReadyAmbient } from './ready-ambient.js'
+import { activeReadyAmbientCount, populateReadyAmbient } from './ready-ambient.js'
+import { createPerformanceMonitor } from './performance-monitor.js'
 import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
 import './style.css'
 
@@ -31,6 +32,7 @@ const FIRST_SPAWN_DELAY_MS = 750
 const FLOATING_TEXT_MS = 800
 const PARTICLE_MS = 450
 const GOLDEN_PARTICLE_MS = 520
+const MAX_GAMEPLAY_PARTICLES = 160
 const GOLDEN_LIVE_MOTES = 6
 const NUMBER_FORMAT = new Intl.NumberFormat()
 
@@ -85,6 +87,15 @@ const timerValue = document.querySelector('#timer')
 const scoreValue = document.querySelector('#score')
 const fpsValue = document.querySelector('#fps-value')
 const detectMsValue = document.querySelector('#detect-ms')
+const renderFpsValue = document.querySelector('#render-fps')
+const frameMsValue = document.querySelector('#frame-ms')
+const workMsValue = document.querySelector('#work-ms')
+const worstFrameMsValue = document.querySelector('#worst-frame-ms')
+const slowFramesValue = document.querySelector('#slow-frames')
+const gameplayParticlesValue = document.querySelector('#gameplay-particles')
+const sliceFragmentsValue = document.querySelector('#slice-fragments')
+const slashSegmentsValue = document.querySelector('#slash-segments')
+const readyParticlesValue = document.querySelector('#ready-particles')
 const cameraResolutionValue = document.querySelector('#camera-resolution')
 const rawSpeedValue = document.querySelector('#raw-speed')
 const handSpeedValue = document.querySelector('#hand-speed')
@@ -113,6 +124,8 @@ const game = createGameSession()
 const leaderboard = createLeaderboard()
 const playerSession = createPlayerSession(leaderboard)
 const audio = createAudioSystem()
+const frameMonitor = createPerformanceMonitor()
+const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
 const assets = { ready: false, error: null, images: new Map() }
 const developerUi = createDeveloperUi(debugPanel)
 const finishedIdle = createFinishedIdle({
@@ -156,10 +169,14 @@ let lastFrameTime = null
 let nextSpawnAt = 0
 let detectionCount = 0
 let detectionWindowStart = 0
+let inferenceFps = 0
+let lastInferenceAt = 0
 let averageDetectMs = 0
 let lastDebugAt = 0
 let displayWidth = 0
 let displayHeight = 0
+let displayDiagonal = 0
+let displayPixelRatio = 0
 let cancelMetadataWait = null
 let fingerDetected = false
 let hadVisual = false
@@ -169,15 +186,22 @@ const anchorTrail = []
 let rawFingerSpeed = 0
 const floatingTexts = []
 const particles = []
+const reusableParticles = []
 let calloutUntil = 0
 let resultShownAt = null
 let beginningRound = false
 let roundRequestId = 0
 let playerEntryStarting = false
+let lastHudSecond = null
+let lastHudScore = null
 
 function setText(element, value) {
   const next = String(value)
   if (element.textContent !== next) element.textContent = next
+}
+
+function setClass(element, name, enabled) {
+  if (element.classList.contains(name) !== enabled) element.classList.toggle(name, enabled)
 }
 
 function syncPlayerUi() {
@@ -227,6 +251,8 @@ function setStatus(message, isError = false) {
     message = 'A game image could not load. Refresh to try again.'
     isError = true
   }
+  if (status.textContent === message && status.hidden === !message
+    && status.classList.contains('error') === isError) return
   setText(status, message)
   status.hidden = !message
   status.classList.toggle('error', isError)
@@ -287,17 +313,24 @@ async function preloadAssets() {
 }
 
 function updateHud() {
-  setText(timerValue, formatTime(game.state.remainingMs))
-  setText(scoreValue, NUMBER_FORMAT.format(game.state.score))
-  timerStat.classList.toggle('final-time', game.state.phase === 'PLAYING'
-    && game.state.remainingMs <= 15000)
-  app.classList.toggle('finale', game.state.phase === 'PLAYING'
-    && game.state.remainingMs <= 15000)
-  app.classList.toggle('web-rush', game.state.phase === 'PLAYING' && game.state.webRushActive)
-  webRushButton.disabled = game.state.phase !== 'PLAYING' || game.state.webRushTriggered
+  const displayedSecond = Math.ceil(game.state.remainingMs / 1000)
+  if (displayedSecond !== lastHudSecond) {
+    setText(timerValue, formatTime(game.state.remainingMs))
+    lastHudSecond = displayedSecond
+  }
+  if (game.state.score !== lastHudScore) {
+    setText(scoreValue, NUMBER_FORMAT.format(game.state.score))
+    lastHudScore = game.state.score
+  }
+  const finalTime = game.state.phase === 'PLAYING' && game.state.remainingMs <= 15000
+  setClass(timerStat, 'final-time', finalTime)
+  setClass(app, 'finale', finalTime)
+  setClass(app, 'web-rush', game.state.phase === 'PLAYING' && game.state.webRushActive)
+  const rushDisabled = game.state.phase !== 'PLAYING' || game.state.webRushTriggered
     || game.state.remainingMs <= 15000
+  if (webRushButton.disabled !== rushDisabled) webRushButton.disabled = rushDisabled
   const showCombo = game.state.phase === 'PLAYING' && game.state.combo > 1
-  comboIndicator.hidden = !showCombo
+  if (comboIndicator.hidden !== !showCombo) comboIndicator.hidden = !showCombo
   if (showCombo) {
     const next = `x${game.state.combo} COMBO${game.state.combo === 5 ? '!' : ''}`
     if (comboIndicator.textContent !== next) {
@@ -426,10 +459,17 @@ function processGameEvents(now) {
 function createParticles(event, now) {
   const count = event.kind === 'golden' ? 18 : 6
   for (let index = 0; index < count; index += 1) {
+    if (particles.length >= MAX_GAMEPLAY_PARTICLES) break
     const angle = (index + Math.random() * 0.5) * Math.PI * 2 / count
     const speed = 70 + Math.random() * 80
-    particles.push({ x: event.x, y: event.y, vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - 25, at: now, golden: event.kind === 'golden' })
+    const particle = reusableParticles.pop() ?? {}
+    particle.x = event.x
+    particle.y = event.y
+    particle.vx = Math.cos(angle) * speed
+    particle.vy = Math.sin(angle) * speed - 25
+    particle.at = now
+    particle.golden = event.kind === 'golden'
+    particles.push(particle)
   }
 }
 
@@ -483,7 +523,7 @@ function updateEffects(now) {
   for (const particle of particles) {
     if (now - particle.at < (particle.golden ? GOLDEN_PARTICLE_MS : PARTICLE_MS)) {
       particles[write++] = particle
-    }
+    } else reusableParticles.push(particle)
   }
   particles.length = write
   if (!stateCallout.hidden) {
@@ -499,7 +539,22 @@ function updateEffects(now) {
 function updateDebug(now, force = false) {
   if (debugPanel.hidden || (!force && now - lastDebugAt < DEBUG_UPDATE_MS)) return
   lastDebugAt = now
+  const frameStats = frameMonitor.snapshot()
+  setText(renderFpsValue, Math.round(frameStats.renderedFps))
+  setText(frameMsValue, frameStats.averageFrameMs.toFixed(1))
+  setText(workMsValue, frameStats.averageWorkMs.toFixed(1))
+  setText(worstFrameMsValue, frameStats.worstFrameMs.toFixed(1))
+  setText(slowFramesValue, frameStats.slowFrames)
+  setText(fpsValue, now - lastInferenceAt <= 1500 ? inferenceFps : 0)
   setText(detectMsValue, averageDetectMs.toFixed(1))
+  setText(gameplayParticlesValue, particles.length)
+  let fragmentCount = 0
+  for (const target of targets.state.targets) if (target.sliced) fragmentCount += 2
+  setText(sliceFragmentsValue, fragmentCount)
+  setText(slashSegmentsValue, slash.state.segments.length)
+  setText(readyParticlesValue, activeReadyAmbientCount(window.innerWidth,
+    game.state.phase === 'READY' && !playerSession.state.currentPlayer
+    && !document.hidden && !reducedMotionQuery.matches))
   setText(cameraResolutionValue, video.videoWidth ? `${video.videoWidth} × ${video.videoHeight}` : '—')
   setText(rawSpeedValue, `${rawFingerSpeed.toFixed(2)} diag/s`)
   setText(handSpeedValue, `${hand.state.handSpeed.toFixed(2)} diag/s`)
@@ -531,6 +586,7 @@ function resizeCanvas() {
   const width = canvas.clientWidth
   const height = canvas.clientHeight
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+  if (width === displayWidth && height === displayHeight && pixelRatio === displayPixelRatio) return
   canvas.width = Math.round(width * pixelRatio)
   canvas.height = Math.round(height * pixelRatio)
   // Game positions and collision radii stay in CSS pixels; only backing pixels scale.
@@ -548,6 +604,8 @@ function resizeCanvas() {
   }
   displayWidth = width
   displayHeight = height
+  displayDiagonal = Math.hypot(width, height)
+  displayPixelRatio = pixelRatio
   drawScene(performance.now())
 }
 
@@ -696,7 +754,7 @@ function drawTarget(target, now) {
 }
 
 function drawScene(now) {
-  context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
+  context.clearRect(0, 0, displayWidth, displayHeight)
   for (const target of targets.state.targets) drawTarget(target, now)
   drawEffects(now)
 
@@ -809,14 +867,14 @@ function processResult(result, now) {
   const tip = landmarks?.[8]
   const rawPoint = tip && Number.isFinite(tip.x) && Number.isFinite(tip.y)
     ? cameraPointToDisplay(tip.x, tip.y, video.videoWidth, video.videoHeight,
-      canvas.clientWidth, canvas.clientHeight)
+      displayWidth, displayHeight)
     : null
   const anchorNormalized = handAnchorFromLandmarks(landmarks)
   const anchor = anchorNormalized && cameraPointToDisplay(
     anchorNormalized.x, anchorNormalized.y, video.videoWidth, video.videoHeight,
-    canvas.clientWidth, canvas.clientHeight,
+    displayWidth, displayHeight,
   )
-  const diagonal = Math.hypot(canvas.clientWidth, canvas.clientHeight)
+  const diagonal = displayDiagonal
   const handSample = landmarks ? hand.sample(anchor, rawPoint, now, diagonal) : null
   if (landmarks && slash.state.motionSource === 'HYBRID') slash.observeMotion(handSample.motion)
   const point = slash.state.motionSource === 'HYBRID' ? handSample?.point : rawPoint
@@ -873,7 +931,7 @@ function spawnWave(now) {
   const groupSize = groupSizeForRoll(Math.random(), profile)
   const waveIds = []
   for (let index = 0; index < groupSize; index += 1) {
-    const target = targets.spawn(canvas.clientWidth, canvas.clientHeight, now, {
+    const target = targets.spawn(displayWidth, displayHeight, now, {
       activeLimit: profile.activeLimit,
       speedScale: profile.launchSpeedScale,
       elapsedMs: game.state.elapsedMs,
@@ -887,10 +945,11 @@ function spawnWave(now) {
 
 function updateDetectionStats(now, detectDuration) {
   detectionCount += 1
+  lastInferenceAt = now
   averageDetectMs = averageDetectMs ? averageDetectMs * 0.85 + detectDuration * 0.15 : detectDuration
   const elapsed = now - detectionWindowStart
   if (elapsed >= 1000) {
-    setText(fpsValue, Math.round(detectionCount * 1000 / elapsed))
+    inferenceFps = Math.round(detectionCount * 1000 / elapsed)
     detectionCount = 0
     detectionWindowStart = now
   }
@@ -900,13 +959,14 @@ function frame(activeSession) {
   if (activeSession !== sessionId || !handLandmarker) return
   try {
     const now = performance.now()
+    frameMonitor.startFrame(now)
     const dtSeconds = lastFrameTime === null ? 0 : (now - lastFrameTime) / 1000
     lastFrameTime = now
 
     game.update(now)
     processGameEvents(now)
     if (game.canSpawn()) {
-      targets.update(dtSeconds, now, canvas.clientWidth, canvas.clientHeight)
+      targets.update(dtSeconds, now, displayWidth, displayHeight)
       if (now >= nextSpawnAt) {
         spawnWave(now)
         nextSpawnAt = now + spawnProfileFor(difficultyAt(game.state.elapsedMs),
@@ -921,7 +981,8 @@ function frame(activeSession) {
       const result = handLandmarker.detectForVideo(video, detectionStart)
       lastVideoTime = video.currentTime
       processResult(result, detectionStart)
-      updateDetectionStats(performance.now(), performance.now() - detectionStart)
+      const detectionEnd = performance.now()
+      updateDetectionStats(detectionEnd, detectionEnd - detectionStart)
     }
 
     const renderNow = performance.now()
@@ -940,7 +1001,6 @@ function frame(activeSession) {
     }
     updateHud()
     updateResultCountup(renderNow)
-    updateDebug(renderNow)
     updateEffects(renderNow)
     const hasVisual = fingerDetected || slash.state.predictionActive
       || slash.state.trail.length > 0 || targets.state.targets.length > 0
@@ -948,6 +1008,8 @@ function frame(activeSession) {
       || (showRawPath && !debugPanel.hidden && (rawTrail.length > 0 || anchorTrail.length > 0))
     if (hasVisual || hadVisual) drawScene(renderNow)
     hadVisual = hasVisual
+    frameMonitor.finishFrame(performance.now() - now)
+    updateDebug(performance.now())
   } catch (error) {
     console.error('Tracking/game loop failed:', error)
     handleCameraLoss(error)
@@ -1037,9 +1099,11 @@ function clearTrackingState() {
   lastFrameTime = null
   detectionCount = 0
   detectionWindowStart = 0
+  inferenceFps = 0
+  lastInferenceAt = 0
   averageDetectMs = 0
   hadVisual = false
-  setText(fpsValue, 0)
+  frameMonitor.reset()
 }
 
 function releaseCamera({ keepScreen = false, keepLoop = false } = {}) {
@@ -1156,6 +1220,7 @@ function resetRound() {
   delete timerStat.dataset.urgency
   targets.reset()
   floatingTexts.length = 0
+  reusableParticles.push(...particles)
   particles.length = 0
   stateCallout.hidden = true
   stateCallout.classList.remove('exiting')
@@ -1301,7 +1366,7 @@ soundButton.addEventListener('click', () => {
 clearLeaderboardButton.addEventListener('click', () => clearLeaderboardConfirmation.click())
 spawnButton.addEventListener('click', () => {
   if (!handLandmarker || !game.canSpawn()) return
-  targets.spawn(canvas.clientWidth, canvas.clientHeight, performance.now(), {
+  targets.spawn(displayWidth, displayHeight, performance.now(), {
     predictable: true,
     ...(targetTypeSelect.value === 'golden' ? { kind: 'golden' }
       : targetTypeSelect.value === 'random' ? {} : { catalogId: targetTypeSelect.value }),

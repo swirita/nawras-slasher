@@ -65,8 +65,18 @@
       </header>
 
       <aside id="debug-panel" class="debug-panel" hidden>
-        <div><span>Detection</span><strong><span id="fps-value">0</span> FPS</strong></div>
-        <div><span>Inference</span><strong><span id="detect-ms">0</span> ms</strong></div>
+        <h3>PERFORMANCE</h3>
+        <div><span>Render</span><strong><span id="render-fps">0</span> FPS</strong></div>
+        <div><span>Frame avg</span><strong><span id="frame-ms">0.0</span> ms</strong></div>
+        <div><span>Work avg</span><strong><span id="work-ms">0.0</span> ms</strong></div>
+        <div><span>Worst recent</span><strong><span id="worst-frame-ms">0.0</span> ms</strong></div>
+        <div><span>Slow frames &gt;25 ms</span><strong id="slow-frames">0</strong></div>
+        <div><span>Inference</span><strong><span id="fps-value">0</span> FPS / <span id="detect-ms">0.0</span> ms</strong></div>
+        <div><span>Gameplay particles</span><strong id="gameplay-particles">0</strong></div>
+        <div><span>Slice fragments</span><strong id="slice-fragments">0</strong></div>
+        <div><span>Slash segments</span><strong id="slash-segments">0</strong></div>
+        <div><span>READY particles</span><strong id="ready-particles">0</strong></div>
+        <h3>TRACKING / GAME</h3>
         <div><span>Camera</span><strong id="camera-resolution">—</strong></div>
         <div><span>Finger speed</span><strong id="raw-speed">0.00 diag/s</strong></div>
         <div><span>Hand speed</span><strong id="hand-speed">0.00 diag/s</strong></div>

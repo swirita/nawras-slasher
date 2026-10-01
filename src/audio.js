@@ -74,6 +74,11 @@ export function createAudioSystem({
     envelope.gain.exponentialRampToValueAtTime(0.0001, at + duration)
     oscillator.connect(envelope)
     envelope.connect(master)
+    oscillator.onended = () => {
+      oscillator.disconnect()
+      envelope.disconnect()
+      oscillator.onended = null
+    }
     oscillator.start(at)
     oscillator.stop(at + duration + 0.01)
   }
@@ -99,6 +104,12 @@ export function createAudioSystem({
     source.connect(filter)
     filter.connect(envelope)
     envelope.connect(master)
+    source.onended = () => {
+      source.disconnect()
+      filter.disconnect()
+      envelope.disconnect()
+      source.onended = null
+    }
     source.start(at)
     source.stop(at + duration + 0.01)
   }
