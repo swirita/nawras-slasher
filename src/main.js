@@ -20,6 +20,7 @@ import { createResetConfirmation, resetGameVisible } from './reset-game.js'
 import { createLeaderboard } from './leaderboard.js'
 import { createPlayerSession } from './player-session.js'
 import { createFinishedIdle } from './finished-idle.js'
+import { populateReadyAmbient } from './ready-ambient.js'
 import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
 import './style.css'
 
@@ -34,6 +35,7 @@ const GOLDEN_LIVE_MOTES = 6
 const NUMBER_FORMAT = new Intl.NumberFormat()
 
 const stage = document.querySelector('#camera-stage')
+const readyAmbient = document.querySelector('#ready-ambient')
 const video = document.querySelector('#camera-video')
 const canvas = document.querySelector('#tracking-canvas')
 const context = canvas.getContext('2d')
@@ -1168,6 +1170,7 @@ function resetRound() {
 }
 
 new ResizeObserver(resizeCanvas).observe(stage)
+populateReadyAmbient(readyAmbient)
 syncPhaseUi()
 updateSoundButton()
 preloadAssets()
@@ -1277,6 +1280,7 @@ function enterNewPlayer() {
 newPlayerButton.addEventListener('click', enterNewPlayer)
 window.addEventListener('pointerdown', () => finishedIdle.activity(), { passive: true })
 document.addEventListener('visibilitychange', () => {
+  app.classList.toggle('ambient-paused', document.hidden)
   if (!document.hidden) finishedIdle.check()
 })
 cameraRetryButton.addEventListener('click', async () => {

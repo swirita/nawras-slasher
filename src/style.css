@@ -47,6 +47,22 @@ button { font: inherit; }
     linear-gradient(90deg, rgb(49 105 140 / 5%) 1px, transparent 1px);
   background-size: 48px 48px;
 }
+.ready-ambient { position: absolute; z-index: 3; inset: 0; display: none;
+  overflow: hidden; pointer-events: none; }
+.app[data-phase="READY"].needs-player .ready-ambient { display: block; }
+.ambient-particle { position: absolute; left: var(--ambient-x); top: var(--ambient-y);
+  width: var(--ambient-size); height: var(--ambient-size); border-radius: 50%;
+  background: var(--ambient-color); box-shadow: 0 0 5px 1px rgb(30 160 199 / 30%);
+  opacity: 0; animation: ready-ambient-drift var(--ambient-duration) linear var(--ambient-delay) infinite; }
+.ambient-streak { width: var(--ambient-streak-length); height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--ambient-color), transparent);
+  rotate: -22deg; box-shadow: 0 0 4px rgb(30 160 199 / 24%); }
+@keyframes ready-ambient-drift {
+  0% { opacity: 0; transform: translate3d(0, 0, 0); }
+  16%, 76% { opacity: var(--ambient-alpha); }
+  100% { opacity: 0; transform: translate3d(var(--ambient-dx), var(--ambient-dy), 0); }
+}
+.app.ambient-paused .ambient-particle { animation-play-state: paused; }
 .camera-stage canvas { z-index: 3; display: block; pointer-events: none; }
 .web-rush-atmosphere { position: absolute; z-index: 4; inset: 0; opacity: 0; pointer-events: none;
   background: radial-gradient(ellipse at center, transparent 57%, rgb(10 143 188 / 8%) 79%, rgb(5 133 183 / 23%) 100%);
@@ -351,6 +367,7 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 #new-player:focus-visible { outline: 3px solid #145b77; outline-offset: 3px; }
 
 @media (prefers-reduced-motion: reduce) {
+  .app[data-phase="READY"].needs-player .ready-ambient { display: none; }
   .state-callout.pop, .combo-indicator.bump, .new-high-score,
   .hud-stat.tick-pulse, .round-message.settled .result-score,
   .new-high-score::before, .new-high-score::after { animation: none; }
@@ -361,6 +378,7 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 }
 
 @media (max-width: 700px) {
+  .ambient-particle:nth-child(n + 15) { display: none; }
   .hud-stats { top: 13px; }
   .hud-stat { height: 52px; padding: 6px 7px; }
   .hud-stat strong { font-size: 1.25rem; }
@@ -382,5 +400,8 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
   .result-actions { gap: 7px; }
   #play-again { padding: 11px 17px; font-size: 0.88rem; }
   #new-player { padding: 10px 11px; font-size: 0.73rem; }
+}
+@media (min-width: 701px) and (max-width: 1100px) {
+  .ambient-particle:nth-child(n + 21) { display: none; }
 }
 .app.needs-player .controls { display: none; }
