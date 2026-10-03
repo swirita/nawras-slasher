@@ -54,17 +54,25 @@
       <button id="reset-game" class="reset-game" type="button" hidden>RESET GAME</button>
       <button id="open-leaderboard" class="open-leaderboard" type="button" aria-controls="leaderboard-page">Leaderboard</button>
       <section id="leaderboard-page" class="leaderboard-page" hidden aria-labelledby="menu-leaderboard-title">
+        <div class="leaderboard-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <button id="close-leaderboard" type="button">&#8592; Back</button>
+        <h2 id="menu-leaderboard-title">Leaderboard</h2>
         <section class="leaderboard menu-leaderboard">
-          <header class="leaderboard-header">
-            <h3 id="menu-leaderboard-title">LEADERBOARD</h3>
-            <button id="close-leaderboard" type="button">&#8592; Back</button>
-          </header>
           <div class="leaderboard-scroll" tabindex="0" role="region" aria-label="All player rankings">
-            <div class="leaderboard-columns"><span>Rank</span><span>Name</span><span>Score</span><span>Best Combo</span></div>
+            <div class="leaderboard-columns"><span>Rank</span><span>Player</span><span>Score</span><span>Highest Combo</span></div>
             <ol id="menu-leaderboard-list"></ol>
-            <p id="menu-leaderboard-empty" class="leaderboard-empty" hidden>NO SCORES YET</p>
+            <p id="menu-leaderboard-empty" class="leaderboard-empty" hidden>No results yet</p>
           </div>
         </section>
+        <button id="clear-leaderboard" type="button" disabled>Clear Leaderboard</button>
+        <dialog id="clear-leaderboard-dialog" class="leaderboard-dialog" aria-labelledby="clear-leaderboard-title" aria-describedby="clear-leaderboard-message">
+          <h2 id="clear-leaderboard-title">Clear leaderboard?</h2>
+          <p id="clear-leaderboard-message">This will permanently delete all saved scores.</p>
+          <form method="dialog">
+            <button type="submit" value="cancel" autofocus>Cancel</button>
+            <button id="confirm-clear-leaderboard" type="submit" value="clear">Clear</button>
+          </form>
+        </dialog>
       </section>
 
       <header class="hud">
@@ -125,7 +133,6 @@
         <button id="spawn-target" class="debug-spawn" type="button" disabled>Spawn Test Target</button>
         <button id="trigger-web-rush" class="debug-spawn" type="button" disabled>Trigger Web Rush</button>
         <button id="sound-toggle" class="debug-spawn sound-toggle" type="button" aria-pressed="true">SOUND ON</button>
-        <button id="clear-leaderboard" class="debug-spawn" type="button">CLEAR LEADERBOARD</button>
         <button id="reset-round" class="debug-spawn" type="button" disabled>Reset Round</button>
         <button id="stop-camera" class="debug-spawn" type="button" hidden>Camera Off</button>
       </aside>
@@ -148,9 +155,9 @@
         <section class="leaderboard" aria-label="All player rankings">
           <header class="leaderboard-header"><h3>LEADERBOARD</h3></header>
           <div id="result-leaderboard-scroll" class="leaderboard-scroll" tabindex="0" role="region" aria-label="Result rankings">
-            <div class="leaderboard-columns"><span>Rank</span><span>Name</span><span>Score</span><span>Best Combo</span></div>
+            <div class="leaderboard-columns"><span>Rank</span><span>Player</span><span>Score</span><span>Highest Combo</span></div>
             <ol id="leaderboard-list"></ol>
-            <p id="leaderboard-empty" class="leaderboard-empty" hidden>NO SCORES YET</p>
+            <p id="leaderboard-empty" class="leaderboard-empty" hidden>No results yet</p>
           </div>
         </section>
         <div class="result-actions">

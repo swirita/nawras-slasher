@@ -46,23 +46,45 @@ export function createLeaderboard({ storage, now = Date.now } = {}) {
   let backend = null
   try { backend = storage === undefined ? globalThis.localStorage : storage } catch { /* memory only */ }
   let entries = []
+  const deletedIds = new Set()
+  let savedSnapshot = null
   try {
     const saved = backend?.getItem(LEADERBOARD_STORAGE_KEY)
+    savedSnapshot = saved ?? null
     if (saved) entries = cleanEntries(JSON.parse(saved))
   } catch { /* malformed or blocked storage starts with an empty leaderboard */ }
 
   function persist() {
-    try { backend?.setItem(LEADERBOARD_STORAGE_KEY, JSON.stringify(entries)) } catch { /* memory only */ }
+    try {
+      const saved = JSON.stringify(entries)
+      backend?.setItem(LEADERBOARD_STORAGE_KEY, saved)
+      savedSnapshot = saved
+    } catch { /* memory only */ }
+  }
+
+  // Read before writes as well as views: another tab may have deleted saved rounds.
+  function sync() {
+    if (!backend) return
+    try {
+      const saved = backend.getItem(LEADERBOARD_STORAGE_KEY)
+      if (saved === savedSnapshot) return
+      const next = saved ? cleanEntries(JSON.parse(saved)) : []
+      const ids = new Set(next.map(entry => entry.id))
+      for (const entry of entries) if (!ids.has(entry.id)) deletedIds.add(entry.id)
+      entries = next
+      savedSnapshot = saved
+    } catch { /* retain memory if storage is blocked */ }
   }
 
   if (entries.length) {
     try { if (backend?.getItem(LEADERBOARD_STORAGE_KEY) !== JSON.stringify(entries)) persist() } catch { /* memory only */ }
   }
 
-  function all() { return entries.map((entry) => ({ ...entry })) }
-  function ranked() { return rankEntries(entries) }
+  function all() { sync(); return entries.map((entry) => ({ ...entry })) }
+  function ranked() { sync(); return rankEntries(entries) }
   function top() { return ranked().filter(entry => entry.rank <= TOP_PLAYER_COUNT) }
   function find(player) {
+    sync()
     if (typeof player === 'string') {
       const normalized = normalizePlayerName(player)
       return entries.find((entry) => normalizePlayerName(entry.name)?.id === normalized?.id) ?? null
@@ -75,6 +97,8 @@ export function createLeaderboard({ storage, now = Date.now } = {}) {
     return entry ? ranked().find(row => row.id === entry.id).rank : null
   }
   function recordCompletedScore(player, score, bestCombo = null, entryId = createEntryId()) {
+    sync()
+    if (deletedIds.has(entryId)) return null
     const normalized = normalizePlayerName(player?.name ?? player)
     if (!normalized || !validScore(score)) return null
     const previousBest = best(normalized.name)
@@ -91,8 +115,13 @@ export function createLeaderboard({ storage, now = Date.now } = {}) {
   }
 
   function clear() {
+    sync()
+    for (const entry of entries) deletedIds.add(entry.id)
     entries = []
-    try { backend?.removeItem(LEADERBOARD_STORAGE_KEY) } catch { /* memory remains clear */ }
+    try {
+      backend?.removeItem(LEADERBOARD_STORAGE_KEY)
+      savedSnapshot = null
+    } catch { /* memory remains clear */ }
   }
 
   return { all, ranked, top, best, rank, recordCompletedScore, clear }

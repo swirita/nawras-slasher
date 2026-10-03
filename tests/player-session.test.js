@@ -112,7 +112,7 @@ test('entry, completion, replay, reset and new-player controls are wired without
   assert.match(html, /<form id="player-entry"/)
   assert.match(html, /id="player-name"[^>]*maxlength="16"/)
   assert.match(html, /id="new-player"/)
-  assert.match(html, /<aside id="debug-panel"[^>]*hidden>[\s\S]*id="clear-leaderboard"/)
+  assert.match(html, /<section id="leaderboard-page"[\s\S]*id="clear-leaderboard"/)
   assert.match(main, /playerEntry\.addEventListener\('submit'/)
   assert.match(main, /if \(await startCamera\(\)\) await beginRound\(\)/)
   assert.match(main, /case 'round-finished':\s*renderPersonalResult\(playerSession\.recordFinishedRound/)

@@ -135,7 +135,7 @@ test('leaderboard reload/reopen with the same storage retains two players and th
   assert.equal(calls.length,3)
   assert.doesNotMatch(main,/localStorage\.(clear|removeItem)/)
   assert.equal((main.match(/leaderboard\.clear\(\)/g) ?? []).length,1)
-  assert.match(main,/onConfirm: \(\) => \{ leaderboard\.clear\(\); renderLeaderboard\(\) \}/)
+  assert.match(main,/clearLeaderboardDialog\.returnValue === 'clear'[\s\S]*leaderboard\.clear\(\)[\s\S]*refreshSavedResults\(\)/)
 })
 test('HUD stops writing unchanged combo levels', () => {
   assert.match(main,/if \(comboIndicator\.dataset\.level !== level\) comboIndicator\.dataset\.level = level/)

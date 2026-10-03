@@ -20,7 +20,7 @@ import { createFullscreenController } from './fullscreen.js'
 import { resetPlayerTracking } from './player-state.js'
 import { createReplayFlow } from './replay.js'
 import { createResetConfirmation, resetGameVisible } from './reset-game.js'
-import { createLeaderboard, TOP_PLAYER_COUNT } from './leaderboard.js'
+import { createLeaderboard, TOP_PLAYER_COUNT, LEADERBOARD_STORAGE_KEY } from './leaderboard.js'
 import { createPlayerSession } from './player-session.js'
 import { createFinishedIdle } from './finished-idle.js'
 import { activeReadyAmbientCount, populateReadyAmbient } from './ready-ambient.js'
@@ -51,6 +51,7 @@ const startRoundButton = document.querySelector('#start-round')
 const resetRoundButton = document.querySelector('#reset-round')
 const resetGameButton = document.querySelector('#reset-game')
 const clearLeaderboardButton = document.querySelector('#clear-leaderboard')
+const clearLeaderboardDialog = document.querySelector('#clear-leaderboard-dialog')
 const spawnButton = document.querySelector('#spawn-target')
 const webRushButton = document.querySelector('#trigger-web-rush')
 const targetTypeSelect = document.querySelector('#target-type')
@@ -187,14 +188,6 @@ const resetConfirmation = createResetConfirmation({
     resetGameButton.setAttribute('aria-label', armed ? 'Confirm reset game' : 'Reset game')
   },
 })
-const clearLeaderboardConfirmation = createResetConfirmation({
-  isPlaying: () => developerUi.state.visible,
-  onConfirm: () => { leaderboard.clear(); renderLeaderboard() },
-  onChange: (armed) => {
-    setText(clearLeaderboardButton, armed ? 'CLEAR ALL?' : 'CLEAR LEADERBOARD')
-    clearLeaderboardButton.classList.toggle('armed', armed)
-  },
-})
 
 let handLandmarker = null
 let animationFrameId = null
@@ -288,6 +281,8 @@ function renderLeaderboard() {
   leaderboardList.replaceChildren(...rows)
   menuLeaderboardList.replaceChildren(...rows.map(row => row.cloneNode(true)))
   leaderboardEmpty.hidden = menuLeaderboardEmpty.hidden = entries.length > 0
+  clearLeaderboardButton.disabled = entries.length === 0
+  for (const columns of app.querySelectorAll('.leaderboard-columns')) columns.hidden = entries.length === 0
 }
 
 function scrollToCurrentPlayer() {
@@ -1566,8 +1561,37 @@ soundButton.addEventListener('click', () => {
   updateSoundButton()
   if (on) void audio.unlock().then(updateSoundButton)
 })
-clearLeaderboardButton.addEventListener('click', () => clearLeaderboardConfirmation.click())
+function refreshSavedResults() {
+  const result = playerSession.state.lastCompleted
+  if (result) {
+    result.bestScore = leaderboard.best(playerSession.state.currentPlayer?.name)
+    result.rank = leaderboard.rank({ id: result.id })
+    if (result.rank === null) result.status = 'unchanged'
+    renderPersonalResult(result.bestScore === null ? null : result)
+    newHighScoreMessage.hidden = result.rank === null || result.status === 'unchanged'
+  } else renderLeaderboard()
+  game.state.highScore = leaderboard.all().reduce((best, entry) => Math.max(best, entry.bestScore), 0)
+  game.state.newHighScore = false
+}
+clearLeaderboardButton.addEventListener('click', () => {
+  if (leaderboard.all().length) {
+    clearLeaderboardDialog.returnValue = ''
+    clearLeaderboardDialog.showModal()
+  }
+})
+clearLeaderboardDialog.addEventListener('close', () => {
+  if (clearLeaderboardDialog.returnValue === 'clear') {
+    leaderboard.clear()
+    refreshSavedResults()
+  }
+  const focusTarget = clearLeaderboardButton.disabled ? closeLeaderboardButton : clearLeaderboardButton
+  focusTarget.focus({ preventScroll: true })
+})
+window.addEventListener('storage', event => {
+  if (event.key === LEADERBOARD_STORAGE_KEY || event.key === null) refreshSavedResults()
+})
 function closeLeaderboardPage() {
+  if (clearLeaderboardDialog.open) { clearLeaderboardDialog.close('cancel'); return }
   if (leaderboardPage.hidden) return
   leaderboardPage.hidden = true
   for (const child of app.children) if (child !== leaderboardPage) child.inert = false
@@ -1611,10 +1635,10 @@ goldenTestOption.textContent = 'Golden Nawras'
 targetTypeSelect.append(goldenTestOption)
 document.addEventListener('keydown', (event) => {
   finishedIdle.activity()
+  if (clearLeaderboardDialog.open) return
   if (event.key === 'Escape') closeLeaderboardPage()
   fullscreen.handleKeydown(event)
   if (developerUi.handleKeydown(event)) {
-    if (!developerUi.state.visible) clearLeaderboardConfirmation.clear()
     updateDebug(performance.now(), true)
   }
 })
