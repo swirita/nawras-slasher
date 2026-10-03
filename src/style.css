@@ -408,6 +408,7 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
   color: #2c5f7b; font-size: 0.8rem; font-weight: 800; cursor: pointer; }
 .leaderboard-scroll { max-height: clamp(100px, 23dvh, 210px); overflow-y: auto; overscroll-behavior: contain;
   scrollbar-width: thin; scrollbar-color: #83afc2 transparent; border-radius: 6px; }
+#result-leaderboard-scroll { overflow-x: hidden; }
 .leaderboard-scroll:focus-visible { outline: 2px solid #2ca9c9; outline-offset: 2px; }
 .menu-leaderboard .leaderboard-scroll { flex: 1; min-height: 0; max-height: none; }
 .leaderboard h3 { margin: 0 0 3px; color: #176783; text-align: center;
