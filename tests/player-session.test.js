@@ -24,7 +24,7 @@ function finishRound(game, session, score, at) {
   return session.state.lastCompleted
 }
 
-test('new player, repeat attempts, and next player update one row per identity', () => {
+test('new player, repeat attempts, and next player save each completed round once', () => {
   let time = 100
   const board = createLeaderboard({ storage: storage(), now: () => time++ })
   const session = createPlayerSession(board)
@@ -38,7 +38,7 @@ test('new player, repeat attempts, and next player update one row per identity',
   game.reset(); session.clearRoundResult()
   assert.equal(session.state.currentPlayer.name, 'Siwar')
   assert.equal(finishRound(game, session, 1700, 100000).status, 'improved')
-  assert.equal(board.all().length, 1)
+  assert.equal(board.all().length, 2)
   game.reset(); session.clearRoundResult()
   const lower = finishRound(game, session, 1400, 200000)
   assert.equal(lower.status, 'unchanged')
@@ -49,7 +49,7 @@ test('new player, repeat attempts, and next player update one row per identity',
   game.reset()
   session.selectPlayer('Lina')
   finishRound(game, session, 1900, 300000)
-  assert.deepEqual(board.top().map(({ id }) => id), ['lina', 'siwar'])
+  assert.deepEqual(board.top().map(({ name }) => name), ['Lina', 'Siwar', 'Siwar', 'Siwar'])
 })
 
 test('RESET GAME discards the score and keeps the active player for a clean attempt', () => {
@@ -118,4 +118,25 @@ test('entry, completion, replay, reset and new-player controls are wired without
   assert.match(main, /case 'round-finished':\s*renderPersonalResult\(playerSession\.recordFinishedRound/)
   assert.match(main, /newPlayerButton\.addEventListener\('click'/)
   assert.doesNotMatch(main, /innerHTML/)
+})
+
+test('round peak combo is saved once even after the live combo resets, and replay resets the peak', () => {
+ const board=createLeaderboard({storage:storage()})
+ const session=createPlayerSession(board)
+ const game=createGameSession()
+ session.selectPlayer('Lina')
+ game.startCountdown(0); game.update(COUNTDOWN_MS); game.drainEvents()
+ for(let i=0;i<5;i++) game.scoreTarget({id:'peak-'+i,kind:'normal',catalogId:'python'},COUNTDOWN_MS+i*100)
+ assert.equal(game.state.bestCombo,5)
+ game.update(COUNTDOWN_MS+GAME_DURATION_MS)
+ assert.equal(game.state.combo,1)
+ const saved=session.recordFinishedRound(game.state.score,game.state.bestCombo)
+ assert.equal(board.all()[0].bestCombo,5)
+ assert.equal(session.recordFinishedRound(0,1),saved)
+ assert.equal(board.all().length,1)
+ game.reset(); session.clearRoundResult()
+ assert.equal(game.state.bestCombo,1)
+ const replay=session.recordFinishedRound(0,1)
+ assert.notEqual(replay.id,saved.id)
+ assert.equal(board.all().length,2)
 })

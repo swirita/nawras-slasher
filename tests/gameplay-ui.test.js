@@ -21,7 +21,7 @@ test('player actions keep their primary hierarchy and shared CSS interactions', 
   assert.match(css, /button:focus-visible[^}]*#2ca9c9/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*button:not\(:disabled\):hover, button:not\(:disabled\):active \{ transform: none; \}/)
   assert.match(main, /comboPresentation\(game\.state\.combo\)/)
-  assert.match(main, /setText\(finalComboValue, String\(summary\.bestCombo\)\)/)
+  assert.ok(main.includes('setText(finalComboValue, `×${summary.bestCombo}`)'))
   assert.match(main, /feedback\.scoreMultiplier/)
 })
 

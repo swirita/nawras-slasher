@@ -1,4 +1,4 @@
-import { normalizePlayerName } from './leaderboard.js'
+import { normalizePlayerName, createEntryId } from './leaderboard.js'
 
 // Active identity is deliberately memory-only; the leaderboard owns persistence.
 export function createPlayerSession(leaderboard) {
@@ -7,24 +7,25 @@ export function createPlayerSession(leaderboard) {
   function selectPlayer(rawName) {
     const player = normalizePlayerName(rawName)
     if (!player) return null
-    const existing = leaderboard.all().find((entry) => entry.id === player.id)
-    state.currentPlayer = { id: player.id, name: existing?.name ?? player.name }
-    state.lastCompleted = null
+    state.currentPlayer = player
+    clearRoundResult()
     return state.currentPlayer
   }
 
-  function recordFinishedRound(score) {
+  let roundId = createEntryId()
+
+  function recordFinishedRound(score, bestCombo) {
     if (!state.currentPlayer) return null
     if (!state.lastCompleted) {
-      state.lastCompleted = leaderboard.recordCompletedScore(state.currentPlayer, score)
+      state.lastCompleted = leaderboard.recordCompletedScore(state.currentPlayer, score, bestCombo, roundId)
     }
     return state.lastCompleted
   }
 
-  function clearRoundResult() { state.lastCompleted = null }
+  function clearRoundResult() { state.lastCompleted = null; roundId = createEntryId() }
   function clearPlayer() {
     state.currentPlayer = null
-    state.lastCompleted = null
+    clearRoundResult()
   }
 
   return { state, selectPlayer, recordFinishedRound, clearRoundResult, clearPlayer }

@@ -20,7 +20,7 @@ import { createFullscreenController } from './fullscreen.js'
 import { resetPlayerTracking } from './player-state.js'
 import { createReplayFlow } from './replay.js'
 import { createResetConfirmation, resetGameVisible } from './reset-game.js'
-import { createLeaderboard } from './leaderboard.js'
+import { createLeaderboard, TOP_PLAYER_COUNT } from './leaderboard.js'
 import { createPlayerSession } from './player-session.js'
 import { createFinishedIdle } from './finished-idle.js'
 import { activeReadyAmbientCount, populateReadyAmbient } from './ready-ambient.js'
@@ -78,6 +78,12 @@ const personalBestMessage = document.querySelector('#personal-best')
 const resultPlayer = document.querySelector('#result-player')
 const leaderboardList = document.querySelector('#leaderboard-list')
 const leaderboardEmpty = document.querySelector('#leaderboard-empty')
+const resultLeaderboardScroll = document.querySelector('#result-leaderboard-scroll')
+const openLeaderboardButton = document.querySelector('#open-leaderboard')
+const leaderboardPage = document.querySelector('#leaderboard-page')
+const closeLeaderboardButton = document.querySelector('#close-leaderboard')
+const menuLeaderboardList = document.querySelector('#menu-leaderboard-list')
+const menuLeaderboardEmpty = document.querySelector('#menu-leaderboard-empty')
 const playAgainButton = document.querySelector('#play-again')
 const newPlayerButton = document.querySelector('#new-player')
 const finishedIdleCountdown = document.querySelector('#finished-idle-countdown')
@@ -248,30 +254,60 @@ function syncPlayerUi() {
 }
 
 function renderLeaderboard() {
-  const top = leaderboard.top()
-  const rows = top.map((entry, index) => {
+  const entries = leaderboard.ranked()
+  const rows = entries.map((entry) => {
     const row = document.createElement('li')
-    row.classList.toggle('current-player', entry.id === playerSession.state.currentPlayer?.id)
+    row.dataset.playerId = entry.id
+    const isCurrent = entry.id === playerSession.state.lastCompleted?.id
+    row.classList.toggle('current-player', isCurrent)
+    row.classList.toggle('top-player', entry.rank <= TOP_PLAYER_COUNT)
     const place = document.createElement('span')
     place.className = 'leaderboard-place'
-    setText(place, index + 1)
+    setText(place, entry.rank)
     const name = document.createElement('span')
     name.className = 'leaderboard-name'
     setText(name, entry.name)
     const score = document.createElement('strong')
     score.className = 'leaderboard-score'
     setText(score, NUMBER_FORMAT.format(entry.bestScore))
-    row.append(place, name, score)
+    const identity = document.createElement('span')
+    identity.className = 'leaderboard-identity'
+    identity.append(name)
+    if (isCurrent) {
+      const label = document.createElement('span')
+      label.className = 'leaderboard-you'
+      label.textContent = 'You'
+      identity.append(label)
+    }
+    const combo = document.createElement('strong')
+    combo.className = 'leaderboard-combo'
+    setText(combo, entry.bestCombo === null ? '—' : `×${entry.bestCombo}`)
+    row.append(place, identity, score, combo)
     return row
   })
   leaderboardList.replaceChildren(...rows)
-  leaderboardEmpty.hidden = top.length > 0
+  menuLeaderboardList.replaceChildren(...rows.map(row => row.cloneNode(true)))
+  leaderboardEmpty.hidden = menuLeaderboardEmpty.hidden = entries.length > 0
+}
+
+function scrollToCurrentPlayer() {
+  const playerId = playerSession.state.lastCompleted?.id
+  // Run once after FINISHED is visible; only this container changes its scroll position.
+  requestAnimationFrame(() => {
+    if (roundMessage.hidden || playerSession.state.lastCompleted?.id !== playerId) return
+    const row = [...leaderboardList.children].find(item => item.dataset.playerId === playerId)
+    if (!row) return
+    const containerRect = resultLeaderboardScroll.getBoundingClientRect()
+    const rowRect = row.getBoundingClientRect()
+    resultLeaderboardScroll.scrollTop += rowRect.top - containerRect.top
+      - resultLeaderboardScroll.clientTop - (resultLeaderboardScroll.clientHeight - rowRect.height) / 2
+  })
 }
 
 function renderPersonalResult(result) {
   const player = playerSession.state.currentPlayer
   setText(resultPlayer, player ? `PLAYER: ${player.name}` : '')
-  const rankLabel = result?.rank && result.rank > 5 ? ` · YOUR RANK #${result.rank}` : ''
+  const rankLabel = result?.rank ? ` · YOUR RANK #${result.rank}` : ''
   setText(personalBestMessage, result
     ? `PERSONAL BEST: ${NUMBER_FORMAT.format(result.bestScore)}${rankLabel}` : '')
   setText(newHighScoreMessage, result?.status === 'first' ? '✦ FIRST SCORE! ✦'
@@ -436,6 +472,8 @@ function syncPhaseUi() {
   resetGameButton.hidden = !resetGameVisible(game.state.phase)
   if (!resetGameVisible(game.state.phase) && resetConfirmation.state.armed) resetConfirmation.clear()
   readyBrand.hidden = game.state.phase !== 'READY'
+  openLeaderboardButton.hidden = game.state.phase !== 'READY'
+  if (game.state.phase !== 'READY') closeLeaderboardPage()
   roundMessage.hidden = game.state.phase !== 'FINISHED'
   startRoundButton.hidden = game.state.phase !== 'READY' || !camera.state.active || !handLandmarker
     || !playerSession.state.currentPlayer
@@ -508,7 +546,7 @@ function processGameEvents(now) {
       case 'new-high-score':
         break
       case 'round-finished':
-        renderPersonalResult(playerSession.recordFinishedRound(game.state.score))
+        renderPersonalResult(playerSession.recordFinishedRound(game.state.score, game.state.bestCombo))
         targets.clearTargets()
         slash.reset()
         stateCallout.hidden = true
@@ -519,9 +557,10 @@ function processGameEvents(now) {
         setText(finalScoreValue, '0')
         const summary = resultSummary(game.state)
         setText(finalSlicedValue, NUMBER_FORMAT.format(summary.sliced))
-        setText(finalComboValue, String(summary.bestCombo))
+        setText(finalComboValue, `×${summary.bestCombo}`)
         newHighScoreMessage.hidden = true
         syncPhaseUi()
+        scrollToCurrentPlayer()
         finishedIdle.start()
         setStatus('')
         stage.classList.add('camera-fading')
@@ -1419,7 +1458,7 @@ changePlayerButton.addEventListener('click', () => {
   playerNameInput.focus()
 })
 async function beginRound() {
-  if (beginningRound || !camera.state.active || !handLandmarker || !assets.ready
+  if (!leaderboardPage.hidden || beginningRound || !camera.state.active || !handLandmarker || !assets.ready
     || game.state.phase !== 'READY' || !playerSession.state.currentPlayer) return
   beginningRound = true
   const requestId = roundRequestId
@@ -1528,6 +1567,23 @@ soundButton.addEventListener('click', () => {
   if (on) void audio.unlock().then(updateSoundButton)
 })
 clearLeaderboardButton.addEventListener('click', () => clearLeaderboardConfirmation.click())
+function closeLeaderboardPage() {
+  if (leaderboardPage.hidden) return
+  leaderboardPage.hidden = true
+  for (const child of app.children) if (child !== leaderboardPage) child.inert = false
+  app.classList.remove('viewing-leaderboard')
+  openLeaderboardButton.focus({ preventScroll: true })
+}
+openLeaderboardButton.addEventListener('click', () => {
+  if (game.state.phase !== 'READY' || playerEntryStarting) return
+  renderLeaderboard()
+  leaderboardPage.hidden = false
+  for (const child of app.children) if (child !== leaderboardPage) child.inert = true
+  app.classList.add('viewing-leaderboard')
+  menuLeaderboardList.parentElement.scrollTop = 0
+  closeLeaderboardButton.focus({ preventScroll: true })
+})
+closeLeaderboardButton.addEventListener('click', closeLeaderboardPage)
 spawnButton.addEventListener('click', () => {
   if (!handLandmarker || !game.canSpawn()) return
   targets.spawn(displayWidth, displayHeight, performance.now(), {
@@ -1555,6 +1611,7 @@ goldenTestOption.textContent = 'Golden Nawras'
 targetTypeSelect.append(goldenTestOption)
 document.addEventListener('keydown', (event) => {
   finishedIdle.activity()
+  if (event.key === 'Escape') closeLeaderboardPage()
   fullscreen.handleKeydown(event)
   if (developerUi.handleKeydown(event)) {
     if (!developerUi.state.visible) clearLeaderboardConfirmation.clear()

@@ -52,6 +52,20 @@
         </svg>
       </div>
       <button id="reset-game" class="reset-game" type="button" hidden>RESET GAME</button>
+      <button id="open-leaderboard" class="open-leaderboard" type="button" aria-controls="leaderboard-page">Leaderboard</button>
+      <section id="leaderboard-page" class="leaderboard-page" hidden aria-labelledby="menu-leaderboard-title">
+        <section class="leaderboard menu-leaderboard">
+          <header class="leaderboard-header">
+            <h3 id="menu-leaderboard-title">LEADERBOARD</h3>
+            <button id="close-leaderboard" type="button">&#8592; Back</button>
+          </header>
+          <div class="leaderboard-scroll" tabindex="0" role="region" aria-label="All player rankings">
+            <div class="leaderboard-columns"><span>Rank</span><span>Name</span><span>Score</span><span>Best Combo</span></div>
+            <ol id="menu-leaderboard-list"></ol>
+            <p id="menu-leaderboard-empty" class="leaderboard-empty" hidden>NO SCORES YET</p>
+          </div>
+        </section>
+      </section>
 
       <header class="hud">
         <div class="hud-stats">
@@ -131,10 +145,13 @@
         </div>
         <p id="personal-best" class="personal-best"></p>
         <p id="new-high-score" class="new-high-score" hidden></p>
-        <section class="leaderboard" aria-label="Top five players">
-          <h3>TOP 5</h3>
-          <ol id="leaderboard-list"></ol>
-          <p id="leaderboard-empty" hidden>NO SCORES YET</p>
+        <section class="leaderboard" aria-label="All player rankings">
+          <header class="leaderboard-header"><h3>LEADERBOARD</h3></header>
+          <div id="result-leaderboard-scroll" class="leaderboard-scroll" tabindex="0" role="region" aria-label="Result rankings">
+            <div class="leaderboard-columns"><span>Rank</span><span>Name</span><span>Score</span><span>Best Combo</span></div>
+            <ol id="leaderboard-list"></ol>
+            <p id="leaderboard-empty" class="leaderboard-empty" hidden>NO SCORES YET</p>
+          </div>
         </section>
         <div class="result-actions">
           <button id="play-again" class="primary-button" type="button">PLAY AGAIN</button>
