@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createPerformanceMonitor, SLOW_FRAME_MS } from '../src/performance-monitor.js'
-import { activeReadyAmbientCount } from '../src/ready-ambient.js'
 
 test('performance monitor measures recent rendered intervals and accumulated slow frames', () => {
   const monitor = createPerformanceMonitor()
@@ -51,20 +50,14 @@ test('performance monitor keeps a fixed recent window without accumulating frame
   assert.equal(stats.slowFrames, 0)
 })
 
-test('READY particle count reflects display breakpoints and active state', () => {
-  assert.equal(activeReadyAmbientCount(1440, true), 26)
-  assert.equal(activeReadyAmbientCount(1024, true), 20)
-  assert.equal(activeReadyAmbientCount(700, true), 14)
-  assert.equal(activeReadyAmbientCount(1440, false), 0)
-})
-
 test('performance diagnostics remain inside the hidden developer panel', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
   const panel = html.match(/<aside id="debug-panel"[^>]*hidden>([\s\S]*?)<\/aside>/)?.[1]
   assert.ok(panel)
-  for (const id of ['render-fps', 'frame-ms', 'work-ms', 'worst-frame-ms',
-    'slow-frames', 'fps-value', 'detect-ms', 'gameplay-particles',
-    'slice-fragments', 'slash-segments', 'ready-particles', 'active-targets']) {
+  for (const id of ['render-fps', 'fps-value', 'detect-ms',
+    'tracking-reason', 'result-age', 'active-delegate', 'copy-tracking-diagnostics']) {
     assert.match(panel, new RegExp(`id="${id}"`))
   }
+  assert.doesNotMatch(panel, /id="(?:canvas-draw-fps|good-hand-age)"/)
+  assert.doesNotMatch(panel, /id="(?:compare-tracking|compare-rendering|diagnostic-gpu|diagnostic-cpu|render-preview-legacy)"/)
 })

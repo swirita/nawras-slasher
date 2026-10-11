@@ -181,10 +181,9 @@ test('Bug impact fades rapidly with no central warning and keeps floating negati
   assert.match(main, /feedback\.kind === 'bug' \? `−\$\{Math\.abs\(feedback\.points\)\}`/)
   assert.match(main, /game\.state\.combo === 0/)
 })
-test('Debug selector and diagnostic lookup include the separate Bug definition', () => {
-  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
-  assert.match(main, /for \(const target of ORDINARY_TARGETS\)[\s\S]*?option\.value = target\.id/)
-  assert.match(main, /TARGET_BY_ID\.get\(targets\.state\.lastHit\.catalogId\)/)
+test('production catalog retains the separate Bug definition without a test selector', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+  assert.doesNotMatch(html, /id="target-type"/)
   assert.equal(ORDINARY_TARGETS.find(t => t.id === 'bug').label, 'Bug')
 })
 test('Bug sound uses a quiet short descending synthesized cue and respects Sound Off', async () => {

@@ -161,9 +161,7 @@ test('fresh player tracking resets histories without clearing session high score
   hand.sample({ x: 80, y: 80 }, { x: 100, y: 100 }, 0, 500)
   slash.detected({ x: 100, y: 100 }, 0, 500)
   slash.detected({ x: 140, y: 100 }, 40, 500)
-  const rawTrail = [{ x: 100, y: 100 }]
-  const anchorTrail = [{ x: 80, y: 80 }]
-  resetPlayerTracking({ finger, hand, slash, rawTrail, anchorTrail })
+  resetPlayerTracking({ finger, hand, slash })
   assert.equal(finger.state.raw, null)
   assert.equal(finger.state.smooth, null)
   assert.equal(finger.state.rejected, 0)
@@ -176,8 +174,6 @@ test('fresh player tracking resets histories without clearing session high score
   assert.equal(slash.state.predictionActive, false)
   assert.equal(slash.state.velocity, null)
   assert.equal(slash.state.segments.length, 0)
-  assert.deepEqual(rawTrail, [])
-  assert.deepEqual(anchorTrail, [])
   game.reset()
   targets.reset()
   assert.equal(game.state.score, 0)
@@ -202,4 +198,102 @@ test('Debug starts hidden, Ctrl+Shift+D toggles only its panel, and reload start
   firstLoad.handleKeydown(event)
   assert.equal(createDeveloperUi({ hidden: false }).state.visible, false)
   assert.equal(event.prevented, 3)
+})
+
+test('camera reports actual settings without device identifiers and measures presented frames', async () => {
+  const stream=fakeStream(),video=fakeVideo()
+  stream.tracks[0].getSettings=()=>({width:1280,height:720,frameRate:24,facingMode:'user',
+    deviceId:'private-device',groupId:'private-group'})
+  let callback,requests=0,canceled=null
+  video.requestVideoFrameCallback=fn=>{callback=fn;return ++requests}
+  video.cancelVideoFrameCallback=id=>{canceled=id}
+  const camera=createCameraSession({video,getUserMedia:async()=>stream})
+  await camera.acquire({video:{width:{ideal:640},frameRate:{ideal:30}}},async()=>{})
+  assert.deepEqual(camera.state.settings,{width:1280,height:720,frameRate:24,facingMode:'user'})
+  callback(0,{presentedFrames:1})
+  callback(1000,{presentedFrames:25})
+  assert.equal(camera.state.freshFrames,24)
+  assert.equal(camera.state.freshFrameRate,24)
+  assert.equal(camera.state.frameRateSource,'PRESENTED_FRAMES')
+  camera.observeDecodedFrames(2000)
+  assert.equal(camera.state.freshFrameRate,0,'a stalled camera is not reported as still producing frames')
+  const lastRequest=requests
+  camera.release()
+  assert.equal(canceled,lastRequest)
+  callback(2100,{presentedFrames:30})
+  assert.equal(camera.state.freshFrames,24,'late callbacks cannot revive a released camera')
+})
+
+test('decoded-frame fallback counts frames independently of inference, skipping duplicate polls', async () => {
+  const video=fakeVideo(),stream=fakeStream()
+  let frames=10
+  video.getVideoPlaybackQuality=()=>({totalVideoFrames:frames})
+  const camera=createCameraSession({video,getUserMedia:async()=>stream})
+  await camera.acquire({video:true},async()=>{})
+  camera.observeDecodedFrames(0)
+  for(let at=10;at<1000;at+=10)camera.observeDecodedFrames(at)
+  frames=40;camera.observeDecodedFrames(1000)
+  assert.equal(camera.state.freshFrames,30)
+  assert.equal(camera.state.freshFrameRate,30)
+  camera.observeDecodedFrames(2000)
+  assert.equal(camera.state.freshFrameRate,0)
+  camera.release()
+})
+
+test('video callbacks are rearmed before delivery, identify image PTS and independently audit decoded frames', async () => {
+  const video = fakeVideo(), deliveries = []
+  let callback, decoded = 0, armed = 0
+  video.requestVideoFrameCallback = fn => { callback = fn; return ++armed }
+  video.getVideoPlaybackQuality = () => ({ totalVideoFrames: decoded })
+  const camera = createCameraSession({ video, getUserMedia: async () => fakeStream(), now: () => 1100,
+    onFrame: (at, metadata) => deliveries.push({ at, metadata, armed }) })
+  await camera.acquire({ video: true }, async () => {})
+  callback(0, { presentedFrames: 1, mediaTime: 0, presentationTime: 0 })
+  assert.equal(deliveries[0].armed, 2)
+  camera.observeDecodedFrames(0)
+  decoded = 30
+  callback(1000, { presentedFrames: 31, mediaTime: 1, presentationTime: 995, captureTime: 990 })
+  camera.observeDecodedFrames(1000)
+  assert.equal(camera.state.decodedFrameRate, 30)
+  assert.equal(camera.state.missedCallbacks, 29)
+  assert.equal(camera.state.frameId, 1)
+  assert.equal(camera.state.presentationDelayMs, 105)
+  assert.equal(camera.state.sourceCaptureAgeMs, 110)
+  callback(1010, { presentedFrames: 32, mediaTime: 1 })
+  assert.equal(deliveries.length, 2, 'same image PTS must not start duplicate inference')
+  camera.release()
+})
+
+test('last-resort media-clock rate is explicitly estimated and quantized, rather than sensor FPS', async () => {
+  const video=fakeVideo(),stream=fakeStream()
+  video.currentTime=0
+  const camera=createCameraSession({video,getUserMedia:async()=>stream})
+  await camera.acquire({video:true},async()=>{})
+  camera.observeDecodedFrames(0)
+  for(let i=1;i<=10;i++) {
+    video.currentTime=i/10
+    camera.observeDecodedFrames(i*100)
+    camera.observeDecodedFrames(i*100)
+  }
+  assert.equal(camera.state.freshFrames,30)
+  assert.equal(camera.state.freshFrameRate,30)
+  assert.equal(camera.state.frameRateSource,'ESTIMATED_MEDIA_TIME')
+  camera.release()
+})
+
+test('a canceled frame callback cannot affect a restarted camera or hide its cancellation handle', async () => {
+  const video=fakeVideo()
+  const callbacks=[],canceled=[]
+  video.requestVideoFrameCallback=fn=>{callbacks.push(fn);return callbacks.length}
+  video.cancelVideoFrameCallback=id=>canceled.push(id)
+  const camera=createCameraSession({video,getUserMedia:async()=>fakeStream()})
+  await camera.acquire({video:true},async()=>{})
+  const oldCallback=callbacks[0]
+  camera.release()
+  await camera.acquire({video:true},async()=>{})
+  oldCallback(1000,{presentedFrames:99})
+  assert.equal(callbacks.length,2)
+  assert.equal(camera.state.frameRateSource,'UNAVAILABLE')
+  camera.release()
+  assert.deepEqual(canceled,[1,2])
 })

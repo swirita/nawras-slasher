@@ -8,6 +8,7 @@ import { createHandMotionProcessor, handAnchorFromLandmarks, estimateFingerFromH
 import { createSlashTracker, HAND_SLASH_START_SPEED, HAND_PREDICTION_MIN_DIRECTION_COSINE } from '../src/slash.js'
 import { createTargetSystem } from '../src/targets.js'
 import { cameraPointToDisplay } from '../src/geometry.js'
+import { createTrackingDiagnostics } from '../src/tracking-diagnostics.js'
 
 const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
 const extract = name => main.match(new RegExp(`function ${name}\\([^]*?\\n}\\n`))[0]
@@ -17,6 +18,7 @@ function fixture(mode = 'HYBRID') {
   slash.setMotionSource(mode)
   let scores = 0
   const scope = { continuity, finger, hand, slash, targets, displayWidth: 1000, displayHeight: 750,
+    trackingDiagnostics: createTrackingDiagnostics(),
     displayDiagonal: 1250, video: {videoWidth:640,videoHeight:480}, rawTrail:[],anchorTrail:[],
     fingerDetected:false, rawFingerSpeed:0, performance:{now:()=>0}, setStatus(){},processGameEvents(){},
     game:{state:{phase:'PLAYING'},scoreTarget(){scores++}},
@@ -151,4 +153,80 @@ test('finger offset smoothing uses elapsed time without extra filtering on fast 
     return hand.state.smoothedFingerOffset.x
   }
   assert.ok(Math.abs(offset([33])-offset([16.5,33]))<1e-10)
+})
+
+test('palm-estimated fingertip source reaches sampleEstimated through the actual main pipeline', () => {
+  const f=fixture()
+  let estimated=0
+  const sampleEstimated=f.finger.sampleEstimated
+  f.finger.sampleEstimated=(...args)=>{estimated++;return sampleEstimated(...args)}
+  f.processResult(f.result(100),0,20)
+  f.processResult(f.result(130),33,53)
+  const noisy=f.result(160)
+  noisy.landmarks[0][8].x=1-800/1000
+  f.processResult(noisy,66,86)
+  assert.equal(f.hand.state.fingerSource,'ESTIMATED')
+  assert.equal(estimated,1)
+  assert.equal(f.continuity.state.estimatedUpdates,1)
+  assert.equal(f.finger.state.pending,null)
+})
+
+test('cursor, confirmed endpoint and collision segment agree across continuous swipes and turns', () => {
+  for (const mode of ['HYBRID','FINGER ONLY']) {
+    const f=fixture(mode)
+    const points=[[100,375],[140,375],[140,435],[140,495],[140,555],[200,555],[260,555]]
+    for(let i=0;i<points.length;i++) {
+      f.processResult(f.result(...points[i]),i*33,i*33+20)
+      const pointer=f.continuity.state.pointer, endpoint=f.slash.state.lastReliablePoint
+      assert.equal(pointer.x,endpoint.x,mode)
+      assert.equal(pointer.y,endpoint.y,mode)
+      const segment=f.slash.state.segments.at(-1)
+      if(segment && segment.at===i*33) {
+        assert.equal(pointer.x,segment.to.x)
+        assert.equal(pointer.y,segment.to.y)
+      }
+    }
+    assert.ok(f.continuity.state.acceptedUpdates>=points.length-1)
+  }
+})
+
+test('120/121/150/151ms boundaries distinguish confirmed interaction, display-only and stale results', () => {
+  for(const age of [120,121,150,151]) {
+    const f=fixture('FINGER ONLY')
+    f.processResult(f.result(100),0,20)
+    const t=f.targets.spawn(1000,750,0,{predictable:true,catalogId:'python'})
+    t.x=125;t.y=375
+    f.processResult(f.result(150),50,50+age)
+    assert.equal(f.scores,age===120?1:0)
+    assert.equal(f.continuity.state.displayOnlyResults,age>120&&age<=150?1:0)
+    assert.equal(f.continuity.state.collisionsRejectedAge,age>120&&age<=150?1:0)
+    assert.equal(f.continuity.state.staleResults,age===151?1:0)
+    if(age>120&&age<=150)assert.equal(f.continuity.state.reason,'DISPLAY_ONLY_RESULT')
+  }
+})
+
+test('visual prediction neither changes the confirmed cursor nor scores', () => {
+  const f=fixture('FINGER ONLY')
+  for(let i=0;i<4;i++)f.processResult(f.result(100+i*30),i*33,i*33+10)
+  const pointer={...f.continuity.state.pointer}
+  const t=f.targets.spawn(1000,750,100,{predictable:true,catalogId:'python'})
+  t.x=220;t.y=375;t.radius=8
+  const prediction=f.slash.missing(119)
+  assert.ok(prediction?.predicted)
+  f.applySlashSegment(prediction,129)
+  assert.equal(f.scores,0)
+  assert.equal(f.continuity.state.pointer.x,pointer.x)
+  assert.equal(f.slash.state.segments.some(segment=>segment.predicted),false)
+  const arcs=[]
+  const context=new Proxy({globalAlpha:1,arc:(...args)=>arcs.push(args)}, {
+    get:(target,key)=>key in target?target[key]:()=>{},
+  })
+  const drawScene=runInNewContext(extract('drawSceneContents')+'\ndrawSceneContents',{
+    ...f,context,drawTarget(){},drawEffects(){},reducedMotionQuery:{matches:true},
+    showRawPath:false,debugPanel:{hidden:true},TRAIL_FADE_MS:240,
+  })
+  drawScene(129)
+  assert.equal(arcs.at(-1)[0],pointer.x)
+  assert.equal(arcs.at(-1)[1],pointer.y)
+  assert.equal(f.continuity.state.pointer.x,pointer.x)
 })

@@ -109,8 +109,6 @@ test('abandoned attempt clears round, camera, targets and tracking but keeps ses
   finger.sample({ x: 100, y: 100 }, 0, 500)
   hand.sample({ x: 80, y: 80 }, { x: 100, y: 100 }, 0, 500)
   slash.detected({ x: 100, y: 100 }, 0, 500)
-  const rawTrail = [{ x: 100, y: 100 }]
-  const anchorTrail = [{ x: 80, y: 80 }]
   const audio = createAudioSystem()
   audio.setEnabled(false)
   const loadedTracker = { loaded: true }
@@ -127,7 +125,7 @@ test('abandoned attempt clears round, camera, targets and tracking but keeps ses
       game.reset()
       targets.reset()
       effects.length = 0
-      resetPlayerTracking({ finger, hand, slash, rawTrail, anchorTrail })
+      resetPlayerTracking({ finger, hand, slash })
     }, now: () => time, setTimer: () => 1, clearTimer: () => {} })
   control.click()
   assert.equal(game.state.phase, 'PLAYING')
@@ -152,8 +150,6 @@ test('abandoned attempt clears round, camera, targets and tracking but keeps ses
   assert.equal(finger.state.raw, null)
   assert.equal(hand.state.velocity, null)
   assert.equal(slash.state.segments.length, 0)
-  assert.deepEqual(rawTrail, [])
-  assert.deepEqual(anchorTrail, [])
   assert.equal(audio.state.enabled, false)
   assert.equal(loadedTracker.loaded, true)
   await camera.acquire({ video: true }, async () => {})

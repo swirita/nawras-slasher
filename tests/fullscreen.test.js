@@ -180,7 +180,8 @@ test('the actual resize handler updates backing pixels without discarding live t
     context: { setTransform: (...args) => transforms.push(args) },
     displayWidth: 1440, displayHeight: 900, displayPixelRatio: 1,
     handLandmarker: { reset: () => resets.push('inference') },
-    continuity: { reset: () => resets.push('continuity') }, lastVideoTime: 5,
+    continuity: { reset: () => resets.push('continuity') },
+    inferenceScheduler: { state: { lastFrameId: 5 }, reset() { this.state.lastFrameId = null } },
     finger: { reset: () => resets.push('finger') },
     hand: { reset: () => resets.push('hand') },
     slash: { reset: () => resets.push('slash') },
@@ -193,7 +194,7 @@ test('the actual resize handler updates backing pixels without discarding live t
   assert.equal(fixture.canvas.height, 1400)
   assert.deepEqual(transforms, [[2, 0, 0, 2, 0, 0]])
   assert.deepEqual(resets, ['inference', 'continuity', 'finger', 'hand', 'slash'])
-  assert.equal(fixture.lastVideoTime, -1)
+  assert.equal(fixture.inferenceScheduler.state.lastFrameId, null)
   assert.equal(fixture.displayWidth, 1024)
   assert.equal(fixture.displayHeight, 700)
   assert.equal(fixture.targets.state.targets[0], liveTarget)

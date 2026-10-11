@@ -86,55 +86,21 @@
         </div>
       </header>
 
-      <aside id="debug-panel" class="debug-panel" hidden>
-        <h3>PERFORMANCE</h3>
-        <div><span>Render</span><strong><span id="render-fps">0</span> FPS</strong></div>
-        <div><span>Frame avg</span><strong><span id="frame-ms">0.0</span> ms</strong></div>
-        <div><span>Work avg</span><strong><span id="work-ms">0.0</span> ms</strong></div>
-        <div><span>Worst recent</span><strong><span id="worst-frame-ms">0.0</span> ms</strong></div>
-        <div><span>Slow frames &gt;25 ms</span><strong id="slow-frames">0</strong></div>
-        <div><span>Inference</span><strong><span id="fps-value">0</span> FPS / <span id="detect-ms">0.0</span> ms</strong></div>
-        <div><span>Tracking latency</span><strong><span id="tracking-latency">0.0</span> ms / <span id="inference-pending">0</span> in flight</strong></div>
-        <div><span>Result / good hand age</span><strong><span id="result-age">—</span> / <span id="good-hand-age">—</span> ms</strong></div>
-        <div><span>Detection losses / no-hand / invalid</span><strong><span id="model-losses">0</span> / <span id="no-hand-results">0</span> / <span id="invalid-results">0</span></strong></div>
-        <div><span>Stale results dropped</span><strong id="stale-results">0</strong></div>
-        <div><span>Model hand / empty / stale hand replies</span><strong><span id="model-hand-replies">0</span> / <span id="model-empty-replies">0</span> / <span id="stale-hand-replies">0</span></strong></div>
-        <div><span>Tracking reason / collision fresh</span><strong><span id="tracking-reason">NO_RESULT</span> / <span id="collision-fresh">NO</span></strong></div>
-        <button id="copy-tracking-diagnostics" class="debug-spawn" type="button">Copy tracking diagnostics</button>
-        <div><span>Gameplay particles</span><strong id="gameplay-particles">0</strong></div>
-        <div><span>Slice fragments</span><strong id="slice-fragments">0</strong></div>
-        <div><span>Slash segments</span><strong id="slash-segments">0</strong></div>
-        <div><span>READY particles</span><strong id="ready-particles">0</strong></div>
-        <h3>TRACKING / GAME</h3>
-        <div><span>Camera</span><strong id="camera-resolution">—</strong></div>
-        <div><span>Finger speed</span><strong id="raw-speed">0.00 diag/s</strong></div>
-        <div><span>Hand speed</span><strong id="hand-speed">0.00 diag/s</strong></div>
-        <div><span>Hand direction stability</span><strong id="hand-direction-stability">—</strong></div>
-        <div><span>Finger source</span><strong id="finger-source">NONE</strong></div>
-        <div><span>Tracking</span><strong id="tracking-state">LOST</strong></div>
-        <div><span>Slash armed</span><strong id="slash-armed">NO</strong></div>
-        <div><span>Missing</span><strong><span id="missing-duration">0</span> ms</strong></div>
-        <div><span>Prediction</span><strong id="prediction-state">OFF</strong></div>
-        <div><span>Prediction age</span><strong id="prediction-age">0 ms</strong></div>
-        <div><span>Direction stability</span><strong id="direction-stability">—</strong></div>
-        <div><span>Rejected samples</span><strong id="rejected-count">0</strong></div>
-        <div><span>Active targets</span><strong id="active-targets">0</strong></div>
-        <div><span>Hit radius</span><strong id="hit-radius">—</strong></div>
-        <div><span>Collision mode</span><strong id="collision-mode">—</strong></div>
-        <div><span>Last hit</span><strong id="last-hit">—</strong></div>
-        <strong id="bridge-indicator" class="bridge-indicator" hidden>BRIDGED</strong>
-        <button id="motion-source-toggle" class="debug-spawn" type="button">Motion source: HYBRID</button>
-        <button id="raw-path-toggle" class="debug-spawn" type="button" aria-pressed="false">Tracking overlay: HIDE</button>
-        <p class="debug-key">Overlay: orange raw tip · cyan processed tip · purple palm/path · blue gameplay slash</p>
-        <label class="debug-target-label" for="target-type">Test target</label>
-        <select id="target-type" class="debug-target-select">
-          <option value="random">Random</option>
-        </select>
-        <button id="spawn-target" class="debug-spawn" type="button" disabled>Spawn Test Target</button>
-        <button id="trigger-web-rush" class="debug-spawn" type="button" disabled>Trigger Web Rush</button>
-        <button id="sound-toggle" class="debug-spawn sound-toggle" type="button" aria-pressed="true">SOUND ON</button>
-        <button id="reset-round" class="debug-spawn" type="button" disabled>Reset Round</button>
-        <button id="stop-camera" class="debug-spawn" type="button" hidden>Camera Off</button>
+      <!-- Local diagnostics; available during gameplay and fullscreen. -->
+      <button id="debug-toggle" class="debug-toggle" type="button" aria-controls="debug-panel" aria-expanded="false" hidden>Debug</button>
+      <aside id="debug-panel" class="debug-panel" role="region" aria-label="Debug readings" hidden>
+        <div class="debug-header"><h2>Debug</h2><button id="debug-close" type="button" aria-label="Close Debug">Close</button></div>
+        <div><span>Animation FPS</span><strong id="render-fps">0</strong></div>
+        <div><span>Tracking FPS / inference</span><strong><span id="fps-value">0</span> / <span id="detect-ms">0.0</span> ms</strong></div>
+        <div><span>Tracking status</span><strong id="tracking-reason">NO_RESULT</strong></div>
+        <div><span>Result age</span><strong><span id="result-age">—</span> ms</strong></div>
+        <div><span>Active delegate</span><strong id="active-delegate">UNKNOWN</strong></div>
+        <button id="copy-tracking-diagnostics" class="debug-spawn" type="button">Copy diagnostics</button>
+        <details class="debug-session-controls"><summary>Session controls</summary>
+          <button id="sound-toggle" class="debug-spawn sound-toggle" type="button" aria-pressed="true">SOUND ON</button>
+          <button id="reset-round" class="debug-spawn" type="button" disabled>Reset Round</button>
+          <button id="stop-camera" class="debug-spawn" type="button" hidden>Camera Off</button>
+        </details>
       </aside>
 
       <div id="combo-indicator" class="combo-indicator" hidden></div>

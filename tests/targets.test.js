@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   createTargetSystem, collisionProfileForSegment, MAX_ACTIVE_TARGETS,
-  NORMAL_SLASH_HIT_RADIUS, FAST_SLASH_HIT_RADIUS, PREDICTED_SLASH_HIT_RADIUS,
+  NORMAL_SLASH_HIT_RADIUS, FAST_SLASH_HIT_RADIUS,
   GOLDEN_TARGET_CHANCE, GOLDEN_ELIGIBLE_AFTER_MS,
 } from '../src/targets.js'
 import { createSlashTracker } from '../src/slash.js'
@@ -65,10 +65,9 @@ test('slash collision has a limited capsule thickness', () => {
   assert.equal(targets.hitWithSegment(far, 10).length, 0)
 })
 
-test('normal, fast armed, and predicted segments use 24/40/50 invisible pixels', () => {
+test('confirmed normal and fast segments retain 24/40 pixel radii; predictions cannot score', () => {
   assert.equal(NORMAL_SLASH_HIT_RADIUS, 24)
   assert.equal(FAST_SLASH_HIT_RADIUS, 40)
-  assert.equal(PREDICTED_SLASH_HIT_RADIUS, 50)
   const lineAt = (y, options = {}) => ({
     from: { x: 150, y }, to: { x: 350, y }, activeSlash: true, ...options,
   })
@@ -96,13 +95,13 @@ test('normal, fast armed, and predicted segments use 24/40/50 invisible pixels',
   const predictedTarget = targets.spawn(500, 400, 0, { predictable: true })
   predictedTarget.x = 250
   predictedTarget.y = 200
-  const nearPredicted = lineAt(200 + predictedTarget.radius + PREDICTED_SLASH_HIT_RADIUS - 1,
+  const nearPredicted = lineAt(200 + predictedTarget.radius + 49,
     { collisionMode: 'FAST' })
   assert.equal(targets.hitWithSegment(nearPredicted, 10).length, 0)
   nearPredicted.predicted = true
-  assert.deepEqual(collisionProfileForSegment(nearPredicted), { mode: 'PREDICTED', radius: 50 })
-  assert.equal(targets.hitWithSegment(nearPredicted, 20).length, 1)
-  assert.equal(targets.state.lastCollision.mode, 'PREDICTED')
+  assert.equal(collisionProfileForSegment(nearPredicted), null)
+  assert.equal(targets.hitWithSegment(nearPredicted, 20).length, 0)
+  assert.equal(predictedTarget.sliced, false)
 })
 
 test('an armed slash segment is tagged FAST without changing its geometry', () => {
@@ -161,7 +160,7 @@ test('slightly varied rotation and drift do not alter the active target cap', ()
   assert.ok(targets.state.targets.every((target) => Math.abs(target.vx) <= 500 * 0.26))
 })
 
-test('a strictly approved predicted segment can hit a target', () => {
+test('a visual predicted segment cannot hit a target', () => {
   const targets = createTargetSystem()
   const target = targets.spawn(500, 400, 0, { predictable: true })
   target.x = 148
@@ -173,6 +172,8 @@ test('a strictly approved predicted segment can hit a target', () => {
   const prediction = slash.missing(100)
   assert.equal(prediction.predicted, true)
   assert.equal(prediction.collisionMode, 'PREDICTED')
-  assert.equal(targets.hitWithSegment(prediction, 100).length, 1)
-  assert.equal(targets.state.lastHit.segmentType, 'PREDICTED')
+  assert.equal(prediction.activeSlash, false)
+  assert.equal(targets.hitWithSegment(prediction, 100).length, 0)
+  assert.equal(target.sliced, false)
+  assert.equal(targets.state.lastHit, null)
 })

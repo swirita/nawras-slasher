@@ -87,9 +87,9 @@ export function createSlashTracker() {
   function addSegment(from, to, now, bridged, predicted = false) {
     const segment = {
       from: { ...from }, to: { ...to }, at: now, bridged, predicted,
-      activeSlash: true, collisionMode: predicted ? 'PREDICTED' : 'NORMAL',
+      activeSlash: !predicted, collisionMode: predicted ? 'PREDICTED' : 'NORMAL',
     }
-    state.segments.push(segment)
+    if (!predicted) state.segments.push(segment)
     if (state.segments.length > MAX_SEGMENTS) state.segments.shift()
     state.trail.push(segment)
     return segment
@@ -175,7 +175,9 @@ export function createSlashTracker() {
           && predictedDistance <= Math.max(35, diagonal * 0.055)
         // A predicted path must agree with reacquisition; otherwise discard it.
         if (predictionConsistent && plausible) {
-          newSegment = addSegment(state.predictedPoint, point, now, true)
+          // Prediction is visual only; confirmed geometry starts at the last
+          // detected endpoint, never at an extrapolated position.
+          newSegment = addSegment(previous, point, now, true)
           state.bridgedUntil = now + BRIDGED_LABEL_MS
           bridged = true
         } else if (!state.predictedPoint && plausible && (state.slashActive || state.lastSpeed >= SLASH_START_SPEED)) {

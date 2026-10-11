@@ -10,6 +10,8 @@ export function createTrackingContinuity() {
     cursorVisible: false, cursorOpacity: 0, canCollide: false,
     noHandResults: 0, invalidResults: 0, detectionLosses: 0,
     reacquisitions: 0, staleResults: 0, reason: 'NO_RESULT', needsReset: true,
+    acceptedUpdates: 0, heldSamples: 0, rejectedSamples: 0, estimatedUpdates: 0,
+    displayOnlyResults: 0, collisionsRejectedAge: 0,
   }
 
   function observe(point, at, receivedAt, landmarksPresent = Boolean(point)) {
@@ -35,9 +37,10 @@ export function createTrackingContinuity() {
     const reset = state.needsReset || (state.lastGoodAt !== null && at - state.lastGoodAt > 130)
     if (reset && state.lastGoodAt !== null) state.reacquisitions++
     state.hasHand = true
+    if (age > INTERACTION_MAX_AGE_MS) state.displayOnlyResults++
     state.lastGoodAt = at
     state.needsReset = false
-    state.reason = 'DETECTED'
+    state.reason = age > INTERACTION_MAX_AGE_MS ? 'DISPLAY_ONLY_RESULT' : 'DETECTED'
     return { accepted: true, reset }
   }
 
@@ -68,6 +71,8 @@ export function createTrackingContinuity() {
     state.cursorOpacity = 0
     state.noHandResults = state.invalidResults = state.detectionLosses = 0
     state.reacquisitions = state.staleResults = 0
+    state.acceptedUpdates = state.heldSamples = state.rejectedSamples = state.estimatedUpdates = 0
+    state.displayOnlyResults = state.collisionsRejectedAge = 0
     state.reason = 'NO_RESULT'
     state.needsReset = true
   }

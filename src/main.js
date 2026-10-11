@@ -1,18 +1,20 @@
-import { initializeInference, videoFrameId } from './inference.js'
+import { initializeInference } from './inference.js'
+import { createLatestFrameScheduler } from './inference-scheduler.js'
+import { createTrackingDiagnostics } from './tracking-diagnostics.js'
 import { createGlowCache, drawGlow } from './glow-cache.js'
 import { cameraPointToDisplay } from './geometry.js'
 import { createFingerProcessor } from './tracking.js'
 import { createHandMotionProcessor, estimateFingerFromHand, handAnchorFromLandmarks } from './hand.js'
 import {
   createSlashTracker, HAND_PREDICTION_MIN_DIRECTION_COSINE,
-  HAND_SLASH_START_SPEED, PREDICTION_MAX_MS, TRAIL_FADE_MS,
+  HAND_SLASH_START_SPEED, TRAIL_FADE_MS,
 } from './slash.js'
 import { createTargetSystem, HIT_EFFECT_MS, GOLDEN_HIT_EFFECT_MS, MAX_ACTIVE_TARGETS } from './targets.js'
 import { createGameSession, difficultyAt, formatTime } from './game.js'
 import { createAudioSystem, soundCueForEvent } from './audio.js'
 import { calloutPhaseAt, comboPresentation, displayedResultScore, resultSummary, RESULT_COUNTUP_MS,
   bugImpactStrength, BUG_WASH_MS } from './presentation.js'
-import { REQUIRED_ASSETS, ORDINARY_TARGETS, TARGET_BY_ID } from './catalog.js'
+import { REQUIRED_ASSETS } from './catalog.js'
 import { containedImageRect, sliceClipPolygon } from './rendering.js'
 import { createCameraSession, FINISHED_CAMERA_RELEASE_MS } from './camera.js'
 import { createDeveloperUi } from './developer-ui.js'
@@ -23,7 +25,7 @@ import { createResetConfirmation, resetGameVisible } from './reset-game.js'
 import { createLeaderboard, TOP_PLAYER_COUNT, LEADERBOARD_STORAGE_KEY } from './leaderboard.js'
 import { createPlayerSession } from './player-session.js'
 import { createFinishedIdle } from './finished-idle.js'
-import { activeReadyAmbientCount, populateReadyAmbient } from './ready-ambient.js'
+import { populateReadyAmbient } from './ready-ambient.js'
 import { createPerformanceMonitor } from './performance-monitor.js'
 import { createTrackingContinuity, INTERACTION_MAX_AGE_MS } from './tracking-continuity.js'
 import { WEB_RUSH_CONFIG, spawnProfileFor, groupSizeForRoll } from './web-rush.js'
@@ -52,10 +54,9 @@ const resetRoundButton = document.querySelector('#reset-round')
 const resetGameButton = document.querySelector('#reset-game')
 const clearLeaderboardButton = document.querySelector('#clear-leaderboard')
 const clearLeaderboardDialog = document.querySelector('#clear-leaderboard-dialog')
-const spawnButton = document.querySelector('#spawn-target')
-const webRushButton = document.querySelector('#trigger-web-rush')
-const targetTypeSelect = document.querySelector('#target-type')
 const debugPanel = document.querySelector('#debug-panel')
+const debugToggleButton = document.querySelector('#debug-toggle')
+const debugCloseButton = document.querySelector('#debug-close')
 const cameraError = document.querySelector('#camera-error')
 const cameraErrorText = document.querySelector('#camera-error-text')
 const cameraRetryButton = document.querySelector('#camera-retry')
@@ -105,48 +106,10 @@ const timerValue = document.querySelector('#timer')
 const scoreValue = document.querySelector('#score')
 const fpsValue = document.querySelector('#fps-value')
 const detectMsValue = document.querySelector('#detect-ms')
-const trackingLatencyValue = document.querySelector('#tracking-latency')
-const inferencePendingValue = document.querySelector('#inference-pending')
 const resultAgeValue = document.querySelector('#result-age')
-const goodHandAgeValue = document.querySelector('#good-hand-age')
-const modelLossesValue = document.querySelector('#model-losses')
-const noHandResultsValue = document.querySelector('#no-hand-results')
-const invalidResultsValue = document.querySelector('#invalid-results')
-const staleResultsValue = document.querySelector('#stale-results')
-const modelHandRepliesValue = document.querySelector('#model-hand-replies')
-const modelEmptyRepliesValue = document.querySelector('#model-empty-replies')
-const staleHandRepliesValue = document.querySelector('#stale-hand-replies')
 const trackingReasonValue = document.querySelector('#tracking-reason')
-const collisionFreshValue = document.querySelector('#collision-fresh')
 const diagnosticsCopyButton = document.querySelector('#copy-tracking-diagnostics')
 const renderFpsValue = document.querySelector('#render-fps')
-const frameMsValue = document.querySelector('#frame-ms')
-const workMsValue = document.querySelector('#work-ms')
-const worstFrameMsValue = document.querySelector('#worst-frame-ms')
-const slowFramesValue = document.querySelector('#slow-frames')
-const gameplayParticlesValue = document.querySelector('#gameplay-particles')
-const sliceFragmentsValue = document.querySelector('#slice-fragments')
-const slashSegmentsValue = document.querySelector('#slash-segments')
-const readyParticlesValue = document.querySelector('#ready-particles')
-const cameraResolutionValue = document.querySelector('#camera-resolution')
-const rawSpeedValue = document.querySelector('#raw-speed')
-const handSpeedValue = document.querySelector('#hand-speed')
-const handDirectionStabilityValue = document.querySelector('#hand-direction-stability')
-const fingerSourceValue = document.querySelector('#finger-source')
-const trackingStateValue = document.querySelector('#tracking-state')
-const slashArmedValue = document.querySelector('#slash-armed')
-const missingDurationValue = document.querySelector('#missing-duration')
-const predictionStateValue = document.querySelector('#prediction-state')
-const predictionAgeValue = document.querySelector('#prediction-age')
-const directionStabilityValue = document.querySelector('#direction-stability')
-const rejectedCountValue = document.querySelector('#rejected-count')
-const activeTargetsValue = document.querySelector('#active-targets')
-const hitRadiusValue = document.querySelector('#hit-radius')
-const collisionModeValue = document.querySelector('#collision-mode')
-const lastHitValue = document.querySelector('#last-hit')
-const bridgeIndicator = document.querySelector('#bridge-indicator')
-const rawPathToggle = document.querySelector('#raw-path-toggle')
-const motionSourceToggle = document.querySelector('#motion-source-toggle')
 
 const finger = createFingerProcessor()
 const hand = createHandMotionProcessor()
@@ -157,11 +120,18 @@ const leaderboard = createLeaderboard()
 const playerSession = createPlayerSession(leaderboard)
 const audio = createAudioSystem()
 const frameMonitor = createPerformanceMonitor()
+const trackingDiagnostics = createTrackingDiagnostics()
 const continuity = createTrackingContinuity()
-const trackingSamples = []
 const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
 const assets = { ready: false, error: null, images: new Map() }
-const developerUi = createDeveloperUi(debugPanel)
+const developerUi = createDeveloperUi(debugPanel, {
+  toggleButton: debugToggleButton,
+  closeButton: debugCloseButton,
+  onChange: (visible) => {
+    clearMouseIdle()
+    if (visible) updateDebug(performance.now(), true)
+  },
+})
 const fullscreen = createFullscreenController({
   document,
   hint: document.querySelector('#fullscreen-hint'),
@@ -178,6 +148,17 @@ const camera = createCameraSession({
   video,
   getUserMedia: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
   onUnexpectedEnd: () => handleCameraLoss(),
+  onFrame: (at, metadata) => {
+    trackingDiagnostics.camera(at, metadata)
+    inferenceScheduler.pump()
+  },
+})
+const inferenceScheduler = createLatestFrameScheduler({
+  video, getDriver: () => handLandmarker,
+  getFrame: () => ({ id: camera.state.frameId === null ? null : `${camera.state.frameRateSource}:${camera.state.frameId}`,
+    presentedAt: camera.state.lastFrameAt }),
+  isEnabled: () => camera.state.active && game.state.phase !== 'FINISHED'
+    && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
 })
 const resetConfirmation = createResetConfirmation({
   isPlaying: () => resetGameVisible(game.state.phase),
@@ -195,7 +176,7 @@ let cameraStartPromise = null
 let retryContext = 'initial'
 let mouseIdleTimer = null
 let sessionId = 0
-let lastVideoTime = -1
+let handModelBytes = null
 let lastFrameTime = null
 let nextSpawnAt = 0
 let detectionCount = 0
@@ -211,10 +192,6 @@ let displayPixelRatio = 0
 let cancelMetadataWait = null
 let fingerDetected = false
 let hadVisual = false
-let showRawPath = false
-const rawTrail = []
-const anchorTrail = []
-let rawFingerSpeed = 0
 const floatingTexts = []
 const particles = []
 const reusableParticles = []
@@ -421,7 +398,6 @@ function updateHud() {
   setClass(app, 'web-rush', game.state.phase === 'PLAYING' && game.state.webRushActive)
   const rushDisabled = game.state.phase !== 'PLAYING' || game.state.webRushTriggered
     || game.state.remainingMs <= 15000
-  if (webRushButton.disabled !== rushDisabled) webRushButton.disabled = rushDisabled
   if (comboBreaking && (game.state.combo > 0 || game.state.phase !== 'PLAYING')) {
     comboBreaking = false
     comboIndicator.classList.remove('breaking')
@@ -460,6 +436,7 @@ function armMouseIdle() {
 function syncPhaseUi() {
   if (game.state.phase !== 'FINISHED') finishedIdle.stop()
   app.dataset.phase = game.state.phase
+  debugToggleButton.hidden = !['COUNTDOWN', 'PLAYING'].includes(game.state.phase)
   fullscreen.sync()
   if (game.state.phase === 'PLAYING') armMouseIdle()
   else { clearMouseIdle(); bugImpactAt = null }
@@ -473,7 +450,6 @@ function syncPhaseUi() {
   startRoundButton.hidden = game.state.phase !== 'READY' || !camera.state.active || !handLandmarker
     || !playerSession.state.currentPlayer
   resetRoundButton.hidden = game.state.phase === 'READY' || game.state.phase === 'FINISHED'
-  spawnButton.disabled = game.state.phase !== 'PLAYING' || !camera.state.active
   updateHud()
 }
 
@@ -654,75 +630,20 @@ function updateEffects(now) {
 function updateDebug(now, force = false) {
   if (debugPanel.hidden || (!force && now - lastDebugAt < DEBUG_UPDATE_MS)) return
   lastDebugAt = now
-  setText(trackingLatencyValue, (handLandmarker?.state.latencyMs ?? 0).toFixed(1))
-  setText(inferencePendingValue, Number(handLandmarker?.state.busy ?? false))
   const tracking = continuity.tick(now)
-  const resultAge = tracking.lastResultAt === null ? null : now - tracking.lastResultAt
-  const reason = handLandmarker?.state.lastReplyStale ? 'STALE_RESULT'
+  const inference = handLandmarker?.state
+  const reason = inference?.lastReplyStale ? 'STALE_RESULT'
+    : tracking.reason === 'DISPLAY_ONLY_RESULT' ? tracking.reason
     : tracking.hasHand && tracking.goodAgeMs > INTERACTION_MAX_AGE_MS
-      ? handLandmarker?.state.busy ? 'INFERENCE_PENDING' : 'RESULT_GAP' : tracking.reason
-  setText(resultAgeValue, resultAge === null ? '—' : resultAge.toFixed(1))
-  setText(goodHandAgeValue, Number.isFinite(tracking.goodAgeMs) ? tracking.goodAgeMs.toFixed(1) : '—')
-  setText(modelLossesValue, tracking.detectionLosses)
-  setText(noHandResultsValue, tracking.noHandResults)
-  setText(invalidResultsValue, tracking.invalidResults)
-  setText(staleResultsValue, (handLandmarker?.state.staleDiscarded ?? 0) + tracking.staleResults)
-  setText(modelHandRepliesValue, handLandmarker?.state.handReplies ?? 0)
-  setText(modelEmptyRepliesValue, handLandmarker?.state.emptyReplies ?? 0)
-  setText(staleHandRepliesValue, handLandmarker?.state.staleHandReplies ?? 0)
-  setText(trackingReasonValue, reason)
-  setText(collisionFreshValue, tracking.canCollide ? 'YES' : 'NO')
-  const frameStats = frameMonitor.snapshot()
-  // Opt-in diagnostics only while Debug is open: one bounded sample per 250ms.
-  trackingSamples.push({ at: now, ...frameStats, inferenceMs: handLandmarker?.state.detectMs ?? 0,
-    resultAgeMs: resultAge, deliveryAgeMs: tracking.resultAgeMs, goodHandAgeMs: tracking.goodAgeMs,
-    detectionLosses: tracking.detectionLosses, noHandResults: tracking.noHandResults,
-    invalidResults: tracking.invalidResults, staleDiscarded: handLandmarker?.state.staleDiscarded ?? 0,
-    handReplies: handLandmarker?.state.handReplies ?? 0, emptyReplies: handLandmarker?.state.emptyReplies ?? 0,
-    staleHandReplies: handLandmarker?.state.staleHandReplies ?? 0,
-    cursorVisible: tracking.cursorVisible, canCollide: tracking.canCollide, reason,
-    activeTargets: targets.activeCount(), inFlight: Number(handLandmarker?.state.busy ?? false) })
-  if (trackingSamples.length > 240) trackingSamples.shift()
-  setText(renderFpsValue, Math.round(frameStats.renderedFps))
-  setText(frameMsValue, frameStats.averageFrameMs.toFixed(1))
-  setText(workMsValue, frameStats.averageWorkMs.toFixed(1))
-  setText(worstFrameMsValue, frameStats.worstFrameMs.toFixed(1))
-  setText(slowFramesValue, frameStats.slowFrames)
+      ? inference?.busy ? 'INFERENCE_PENDING' : 'RESULT_GAP' : tracking.reason
+  const resultAge = tracking.lastResultAt === null ? null : now - tracking.lastResultAt
+  const frames = frameMonitor.snapshot()
+  setText(renderFpsValue, Math.round(frames.renderedFps))
   setText(fpsValue, now - lastInferenceAt <= 1500 ? inferenceFps : 0)
   setText(detectMsValue, averageDetectMs.toFixed(1))
-  setText(gameplayParticlesValue, particles.length)
-  let fragmentCount = 0
-  for (const target of targets.state.targets) if (target.sliced) fragmentCount += 2
-  setText(sliceFragmentsValue, fragmentCount)
-  setText(slashSegmentsValue, slash.state.segments.length)
-  setText(readyParticlesValue, activeReadyAmbientCount(window.innerWidth,
-    game.state.phase === 'READY' && !playerSession.state.currentPlayer
-    && !document.hidden && !reducedMotionQuery.matches))
-  setText(cameraResolutionValue, video.videoWidth ? `${video.videoWidth} × ${video.videoHeight}` : '—')
-  setText(rawSpeedValue, `${rawFingerSpeed.toFixed(2)} diag/s`)
-  setText(handSpeedValue, `${hand.state.handSpeed.toFixed(2)} diag/s`)
-  setText(handDirectionStabilityValue, hand.state.reliableStreak >= 3
-    ? hand.state.directionStability.toFixed(2) : '—')
-  setText(fingerSourceValue, slash.state.motionSource === 'FINGER ONLY'
-    ? hand.state.rawFinger ? 'RAW' : 'NONE' : hand.state.fingerSource)
-  setText(trackingStateValue, slash.state.tracking)
-  setText(slashArmedValue, slash.state.slashArmed ? 'YES' : 'NO')
-  setText(missingDurationValue, slash.state.missingForMs)
-  setText(predictionStateValue, slash.state.predictionActive ? 'ON' : 'OFF')
-  setText(predictionAgeValue, `${Math.round(slash.state.predictedMs)} ms`)
-  setText(directionStabilityValue, slash.state.reliableStreak >= 3
-    ? slash.state.directionStability.toFixed(2) : '—')
-  setText(rejectedCountValue, finger.state.rejected)
-  setText(activeTargetsValue, targets.activeCount())
-  setText(hitRadiusValue, targets.state.lastCollision
-    ? `${targets.state.lastCollision.radius} px` : '—')
-  setText(collisionModeValue, targets.state.lastCollision?.mode ?? '—')
-  setText(lastHitValue, targets.state.lastHit
-    ? `${targets.state.lastHit.catalogId === 'golden' ? 'Golden Nawras'
-      : (TARGET_BY_ID.get(targets.state.lastHit.catalogId)?.label ?? 'Unknown')} `
-      + `#${targets.state.lastHit.targetId} (${targets.state.lastHit.segmentType})`
-    : '—')
-  bridgeIndicator.hidden = slash.state.tracking !== 'DETECTED' || now >= slash.state.bridgedUntil
+  setText(trackingReasonValue, reason)
+  setText(resultAgeValue, resultAge === null ? '—' : resultAge.toFixed(1))
+  setText(document.querySelector('#active-delegate'), inference?.delegate ?? 'UNKNOWN')
 }
 
 function resizeCanvas() {
@@ -738,15 +659,12 @@ function resizeCanvas() {
   if (displayWidth && displayHeight && (width !== displayWidth || height !== displayHeight)) {
     handLandmarker?.reset()
     continuity.reset()
-    lastVideoTime = -1
+    inferenceScheduler.reset()
     finger.reset()
     hand.reset()
     slash.reset()
     // Live targets keep their CSS-pixel positions and physics across viewport changes.
     fingerDetected = false
-    rawTrail.length = 0
-    anchorTrail.length = 0
-    rawFingerSpeed = 0
   }
   displayWidth = width
   displayHeight = height
@@ -906,6 +824,12 @@ function drawTarget(target, now) {
 }
 
 function drawScene(now) {
+  const startedAt = performance.now()
+  try { drawSceneContents(now) }
+  finally { trackingDiagnostics.canvasDraw(startedAt, performance.now() - startedAt) }
+}
+
+function drawSceneContents(now) {
   context.clearRect(0, 0, displayWidth, displayHeight)
   for (const target of targets.state.targets) drawTarget(target, now)
   drawEffects(now)
@@ -914,31 +838,6 @@ function drawScene(now) {
     if (wash > 0) {
       context.fillStyle = `rgba(220, 25, 40, ${0.045 * wash})`
       context.fillRect(0, 0, displayWidth, displayHeight)
-    }
-  }
-
-  if (showRawPath && !debugPanel.hidden) {
-    context.lineCap = 'round'
-    for (let index = 1; index < rawTrail.length; index += 1) {
-      const opacity = Math.max(0, 1 - (now - rawTrail[index].at) / 300)
-      if (!opacity || rawTrail[index].at - rawTrail[index - 1].at > 100) continue
-      context.lineWidth = 2
-      context.strokeStyle = `rgba(46, 72, 94, ${opacity * 0.5})`
-      context.beginPath()
-      context.moveTo(rawTrail[index - 1].x, rawTrail[index - 1].y)
-      context.lineTo(rawTrail[index].x, rawTrail[index].y)
-      context.stroke()
-    }
-    context.lineWidth = 2
-    context.lineCap = 'round'
-    for (let index = 1; index < anchorTrail.length; index += 1) {
-      const opacity = Math.max(0, 1 - (now - anchorTrail[index].at) / 300)
-      if (!opacity || anchorTrail[index].at - anchorTrail[index - 1].at > 100) continue
-      context.strokeStyle = `rgba(122, 49, 159, ${opacity * 0.55})`
-      context.beginPath()
-      context.moveTo(anchorTrail[index - 1].x, anchorTrail[index - 1].y)
-      context.lineTo(anchorTrail[index].x, anchorTrail[index].y)
-      context.stroke()
     }
   }
 
@@ -964,33 +863,8 @@ function drawScene(now) {
     context.stroke()
   }
 
-  if (showRawPath && !debugPanel.hidden) {
-    const raw = rawTrail.at(-1)
-    if (raw && now - raw.at < 300) {
-      context.beginPath()
-      context.arc(raw.x, raw.y, 5, 0, Math.PI * 2)
-      context.fillStyle = '#f09835'
-      context.fill()
-    }
-    const anchor = anchorTrail.at(-1)
-    if (anchor && now - anchor.at < 300) {
-      context.beginPath()
-      context.arc(anchor.x, anchor.y, 7, 0, Math.PI * 2)
-      context.fillStyle = '#a869cc'
-      context.fill()
-      context.lineWidth = 2
-      context.strokeStyle = '#fff'
-      context.stroke()
-    }
-  }
-
   const tracking = continuity.tick(now)
-  const ghost = slash.state.predictionActive && tracking.canCollide
-  if (ghost && slash.state.predictedPoint && tracking.pointer) {
-    // Hold the last displayed point when prediction expires, avoiding a jump back.
-    tracking.pointer.x = slash.state.predictedPoint.x
-    tracking.pointer.y = slash.state.predictedPoint.y
-  }
+  // Prediction has its own trail. Never overwrite the confirmed cursor with it.
   const cursor = tracking.pointer
   if (!cursor || !tracking.cursorVisible) return
   const opacity = tracking.cursorOpacity
@@ -1011,8 +885,12 @@ function drawScene(now) {
 }
 
 function applySlashSegment(segment, now) {
-  if (!segment || game.state.phase !== 'PLAYING' || !continuity.tick(now).canCollide) return
-  if (!Number.isFinite(segment.at) || now - segment.at > INTERACTION_MAX_AGE_MS || segment.at > now) return
+  if (!segment || segment.predicted || game.state.phase !== 'PLAYING') return
+  if (!Number.isFinite(segment.at) || segment.at > now) return
+  if (now - segment.at > INTERACTION_MAX_AGE_MS || !continuity.tick(now).canCollide) {
+    continuity.state.collisionsRejectedAge++
+    return
+  }
   const hits = targets.hitWithSegment(segment, now)
   if (!hits.length) return
   const dx = segment.to.x - segment.from.x
@@ -1046,29 +924,17 @@ function processResult(result, now, receivedAt = performance.now()) {
     finger.reset()
     hand.reset()
     slash.reset()
-    rawTrail.length = anchorTrail.length = 0
   }
   const handSample = landmarks ? hand.sample(anchor, rawPoint, now, diagonal) : null
   if (landmarks && slash.state.motionSource === 'HYBRID') slash.observeMotion(handSample.motion)
   const point = slash.state.motionSource === 'HYBRID' ? handSample?.point : rawPoint
   fingerDetected = Boolean(point)
 
-  if (rawPoint) {
-    const previous = rawTrail.at(-1)
-    const elapsed = previous ? now - previous.at : 0
-    rawFingerSpeed = previous && elapsed > 0 && elapsed <= 150
-      ? Math.hypot(rawPoint.x - previous.x, rawPoint.y - previous.y) * 1000 / (diagonal * elapsed)
-      : 0
-    rawTrail.push({ ...rawPoint, at: now })
-    while (rawTrail.length > 16 || (rawTrail.length && now - rawTrail[0].at > 300)) rawTrail.shift()
-  } else rawFingerSpeed = 0
-  if (anchor) {
-    anchorTrail.push({ ...hand.state.smoothedHandAnchor, at: now })
-    while (anchorTrail.length > 16 || (anchorTrail.length && now - anchorTrail[0].at > 300)) anchorTrail.shift()
-  }
-
   if (point) {
-    let samples = slash.state.motionSource === 'HYBRID' && handSample.fingerSource === 'ESTIMATED'
+    const beforeHeld = finger.state.held
+    const beforeRejected = finger.state.rejected
+    const beforeEstimated = finger.state.estimated
+    let samples = slash.state.motionSource === 'HYBRID' && handSample.motion?.fingerSource === 'ESTIMATED'
       ? finger.sampleEstimated(point, now, diagonal)
       : finger.sample(point, now, diagonal)
     if (!samples.length && slash.state.motionSource === 'HYBRID'
@@ -1081,11 +947,20 @@ function processResult(result, now, receivedAt = performance.now()) {
       handSample.motion.fingerSource = 'ESTIMATED'
     }
     for (const sample of samples) {
-      const motion = slash.state.motionSource === 'HYBRID' ? handSample.motion : undefined
+      if (sample.reseed) slash.reset()
+      // A held point retains its timestamp; newer palm motion must not
+      // reposition an earlier sample or arm it for prediction.
+      const motion = slash.state.motionSource === 'HYBRID'
+        ? (handSample.motion?.at === sample.at ? handSample.motion : null) : undefined
       const { segment } = slash.detected(sample.point, sample.at, diagonal, motion)
+      continuity.setPointer(slash.state.lastReliablePoint)
+      continuity.state.acceptedUpdates++
       applySlashSegment(segment, receivedAt)
     }
-    continuity.setPointer(finger.state.smooth)
+    continuity.state.heldSamples += finger.state.held - beforeHeld
+    continuity.state.rejectedSamples += finger.state.rejected - beforeRejected
+    continuity.state.estimatedUpdates += finger.state.estimated - beforeEstimated
+    if (samples.length) trackingDiagnostics.position(receivedAt, now)
     if (finger.state.pending && (slash.state.motionSource === 'FINGER ONLY'
       || !handSample.motion?.offsetFresh)) slash.disarm()
     setStatus('Hand detected')
@@ -1130,9 +1005,11 @@ function updateDetectionStats(now, detectDuration) {
 }
 
 function frame(activeSession) {
-  if (activeSession !== sessionId || !handLandmarker) return
+  if (activeSession !== sessionId) return
   try {
     const now = performance.now()
+    trackingDiagnostics.render(now)
+    camera.observeDecodedFrames(now)
     frameMonitor.startFrame(now)
     const dtSeconds = lastFrameTime === null ? 0 : (now - lastFrameTime) / 1000
     lastFrameTime = now
@@ -1148,17 +1025,11 @@ function frame(activeSession) {
       }
     }
 
-    if (camera.state.active && game.state.phase !== 'FINISHED'
-      && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
-      && !handLandmarker.state.busy) {
-      const detectionStart = performance.now()
-      const frameId = videoFrameId(video)
-      if (frameId !== lastVideoTime && handLandmarker.detectForVideo(video, detectionStart)) lastVideoTime = frameId
-    }
+    // Render polling is only the fallback/watchdog. Video delivery and every
+    // worker completion also pump the latest frame without waiting for rAF.
+    inferenceScheduler.pump()
 
     const renderNow = performance.now()
-    while (rawTrail.length && renderNow - rawTrail[0].at > 300) rawTrail.shift()
-    while (anchorTrail.length && renderNow - anchorTrail[0].at > 300) anchorTrail.shift()
     const tracking = continuity.tick(renderNow)
     applySlashSegment(slash.tick(continuity.clock(renderNow)), renderNow)
     if (!tracking.hasHand || !tracking.cursorVisible) {
@@ -1176,10 +1047,14 @@ function frame(activeSession) {
     const hasVisual = tracking.cursorVisible || slash.state.predictionActive
       || slash.state.trail.length > 0 || targets.state.targets.length > 0
       || floatingTexts.length > 0 || particles.length > 0
-      || (showRawPath && !debugPanel.hidden && (rawTrail.length > 0 || anchorTrail.length > 0))
-    if (hasVisual || hadVisual) drawScene(renderNow)
-    hadVisual = hasVisual
-    frameMonitor.finishFrame(performance.now() - now)
+
+    if (hasVisual || hadVisual) {
+      drawScene(renderNow)
+      hadVisual = hasVisual
+    }
+    const frameWorkMs = performance.now() - now
+    frameMonitor.finishFrame(frameWorkMs)
+    trackingDiagnostics.frameWork(frameWorkMs)
     updateDebug(performance.now())
   } catch (error) {
     console.error('Tracking/game loop failed:', error)
@@ -1196,9 +1071,12 @@ function frame(activeSession) {
 async function initializeHandTracker() {
   let modelBuffer
   try {
-    const response = await fetch(MODEL_URL)
-    if (!response.ok) throw new Error(`Model request returned HTTP ${response.status}`)
-    modelBuffer = new Uint8Array(await response.arrayBuffer())
+    if (!handModelBytes) {
+      const response = await fetch(MODEL_URL)
+      if (!response.ok) throw new Error(`Model request returned HTTP ${response.status}`)
+      handModelBytes = new Uint8Array(await response.arrayBuffer())
+    }
+    modelBuffer = handModelBytes.slice() // Worker transfer must not detach the cache.
   } catch (error) {
     console.error('Hand Landmarker model download failed:', error)
     throw new Error('Could not load the hand tracking model. Please try again.')
@@ -1206,17 +1084,22 @@ async function initializeHandTracker() {
   try {
     return await initializeInference({
       wasmRoot: WASM_ROOT, modelBuffer,
+      onIdle: () => inferenceScheduler.pump(),
+      onMeasurement: (receivedAt, stats) => {
+        trackingDiagnostics.state.activeDelegate = stats.delegate
+        trackingDiagnostics.state.renderer = stats.renderer
+        trackingDiagnostics.state.cameraSettings = camera.state.settings
+        trackingDiagnostics.state.frameRateSource = camera.state.frameRateSource
+        trackingDiagnostics.inference(receivedAt, stats)
+      },
       onResult: (result, capturedAt, detectMs) => {
         if (!camera.state.active || game.state.phase === 'FINISHED') return
+        const before = { ...continuity.state }
         try {
           processResult(result, capturedAt)
           updateDetectionStats(performance.now(), detectMs)
-          // Start from the latest frame as soon as inference frees up; no backlog.
-          if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-            const frameId = videoFrameId(video)
-            if (frameId !== lastVideoTime && handLandmarker.detectForVideo(video, performance.now())) lastVideoTime = frameId
-          }
         } catch (error) { handleCameraLoss(error) }
+        finally { trackingDiagnostics.stability(before, continuity.state) }
       },
       onError: error => {
         handLandmarker?.close()
@@ -1273,10 +1156,9 @@ function showCameraError(message, context) {
 function clearTrackingState() {
   handLandmarker?.reset()
   continuity.reset()
-  resetPlayerTracking({ finger, hand, slash, rawTrail, anchorTrail })
+  resetPlayerTracking({ finger, hand, slash })
   fingerDetected = false
-  rawFingerSpeed = 0
-  lastVideoTime = -1
+  inferenceScheduler.reset()
   lastFrameTime = null
   detectionCount = 0
   detectionWindowStart = 0
@@ -1302,7 +1184,6 @@ function releaseCamera({ keepScreen = false, keepLoop = false } = {}) {
   cameraOffButton.hidden = true
   startRoundButton.disabled = true
   resetRoundButton.disabled = true
-  spawnButton.disabled = true
   if (keepScreen) {
     syncPhaseUi()
     setStatus('')
@@ -1363,12 +1244,17 @@ function startCamera() {
         if (activeSession !== sessionId) { tracker.close(); return false }
         handLandmarker = tracker
       }
-      lastVideoTime = -1
+
+      trackingDiagnostics.state.activeDelegate = handLandmarker.state.delegate
+      trackingDiagnostics.state.renderer = handLandmarker.state.renderer
+      trackingDiagnostics.state.cameraSettings = camera.state.settings
+      trackingDiagnostics.state.frameRateSource = camera.state.frameRateSource
+      trackingDiagnostics.resetWindow(performance.now())
+      inferenceScheduler.reset()
       lastFrameTime = null
       detectionWindowStart = performance.now()
       detectionCount = 0
       resetRoundButton.disabled = false
-      spawnButton.disabled = true
       cameraOffButton.hidden = false
       cameraOnButton.hidden = true
       refreshRoundStart()
@@ -1469,12 +1355,8 @@ async function beginRound() {
   hand.reset()
   continuity.reset()
   handLandmarker?.reset()
-  lastVideoTime = -1
-  trackingSamples.length = 0
+  inferenceScheduler.reset()
   fingerDetected = false
-  rawTrail.length = 0
-  anchorTrail.length = 0
-  rawFingerSpeed = 0
   startRoundButton.disabled = true
   syncPhaseUi()
   processGameEvents(performance.now())
@@ -1546,10 +1428,18 @@ cameraRetryButton.addEventListener('click', async () => {
 diagnosticsCopyButton.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(JSON.stringify({
-      camera: { width: video.videoWidth, height: video.videoHeight },
+      camera: { width: video.videoWidth, height: video.videoHeight, settings: camera.state.settings,
+        freshFrameRate: camera.state.freshFrameRate, freshFrames: camera.state.freshFrames,
+        frameRateSource: camera.state.frameRateSource,
+        decodedFrames: camera.state.decodedFrames, decodedFrameRate: camera.state.decodedFrameRate,
+        callbackIntervalMs: camera.state.callbackIntervalMs, mediaIntervalMs: camera.state.mediaIntervalMs,
+        missedCallbacks: camera.state.missedCallbacks, presentationDelayMs: camera.state.presentationDelayMs,
+        sourceCaptureAgeMs: camera.state.sourceCaptureAgeMs },
+      tracking: continuity.state,
+      timingAudit: trackingDiagnostics.snapshot(performance.now()),
+      scheduler: inferenceScheduler.state,
       thresholds: { detection: 0.5, presence: 0.5, tracking: 0.5 },
       inference: handLandmarker?.state ?? null,
-      samples: trackingSamples,
     }, null, 2))
     setText(diagnosticsCopyButton, 'Tracking diagnostics copied')
   } catch {
@@ -1608,39 +1498,18 @@ openLeaderboardButton.addEventListener('click', () => {
   closeLeaderboardButton.focus({ preventScroll: true })
 })
 closeLeaderboardButton.addEventListener('click', closeLeaderboardPage)
-spawnButton.addEventListener('click', () => {
-  if (!handLandmarker || !game.canSpawn()) return
-  targets.spawn(displayWidth, displayHeight, performance.now(), {
-    predictable: true,
-    ...(targetTypeSelect.value === 'golden' ? { kind: 'golden' }
-      : targetTypeSelect.value === 'random' ? {} : { catalogId: targetTypeSelect.value }),
-    activeLimit: MAX_ACTIVE_TARGETS,
-    speedScale: difficultyAt(game.state.elapsedMs).launchSpeedScale,
-  })
-  updateDebug(performance.now(), true)
-})
-webRushButton.addEventListener('click', () => {
-  const now = performance.now()
-  if (game.triggerWebRush(now)) processGameEvents(now)
-})
-for (const target of ORDINARY_TARGETS) {
-  const option = document.createElement('option')
-  option.value = target.id
-  option.textContent = target.label
-  targetTypeSelect.append(option)
-}
-const goldenTestOption = document.createElement('option')
-goldenTestOption.value = 'golden'
-goldenTestOption.textContent = 'Golden Nawras'
-targetTypeSelect.append(goldenTestOption)
+// Handle Debug before focused controls can consume a delivered shortcut.
+window.addEventListener('keydown', (event) => {
+  if (developerUi.handleKeydown(event)) {
+    finishedIdle.activity()
+    event.stopPropagation()
+  }
+}, { capture: true })
 document.addEventListener('keydown', (event) => {
   finishedIdle.activity()
   if (clearLeaderboardDialog.open) return
   if (event.key === 'Escape') closeLeaderboardPage()
   fullscreen.handleKeydown(event)
-  if (developerUi.handleKeydown(event)) {
-    updateDebug(performance.now(), true)
-  }
 })
 document.addEventListener('pointermove', (event) => {
   finishedIdle.activity()
@@ -1648,23 +1517,3 @@ document.addEventListener('pointermove', (event) => {
 })
 app.addEventListener('dragstart', (event) => event.preventDefault())
 for (const image of app.querySelectorAll('img')) image.draggable = false
-rawPathToggle.addEventListener('click', () => {
-  showRawPath = !showRawPath
-  rawPathToggle.setAttribute('aria-pressed', String(showRawPath))
-  setText(rawPathToggle, `Tracking overlay: ${showRawPath ? 'SHOW' : 'HIDE'}`)
-})
-motionSourceToggle.addEventListener('click', () => {
-  slash.setMotionSource(slash.state.motionSource === 'HYBRID' ? 'FINGER ONLY' : 'HYBRID')
-  finger.reset()
-  hand.reset()
-  continuity.reset()
-  handLandmarker?.reset()
-  lastVideoTime = -1
-  rawTrail.length = 0
-  anchorTrail.length = 0
-  rawFingerSpeed = 0
-  fingerDetected = false
-  setText(motionSourceToggle, `Motion source: ${slash.state.motionSource}`)
-  updateDebug(performance.now(), true)
-  drawScene(performance.now())
-})

@@ -184,12 +184,12 @@ test('dedicated rush cue plays once from the event and respects SOUND OFF', asyn
   assert.equal(soundCueForEvent({ type: 'final-15' }).name, 'final-15')
 })
 
-test('developer trigger is inside the hidden panel and presentation has a separate rush layer', () => {
+test('Expo keeps the automatic rush presentation without a manual developer trigger', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
   const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
   const panel = html.match(/<aside id="debug-panel"[^>]*hidden>([\s\S]*?)<\/aside>/)
   assert.ok(panel)
-  assert.match(panel[1], /id="trigger-web-rush"/)
+  assert.doesNotMatch(panel[1], /id="trigger-web-rush"/)
   assert.match(html, /class="web-rush-atmosphere"/)
   assert.match(css, /\.app\.web-rush \.web-rush-atmosphere/)
 })

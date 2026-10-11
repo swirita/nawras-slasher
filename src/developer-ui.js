@@ -1,14 +1,28 @@
-export function createDeveloperUi(panel) {
+export function createDeveloperUi(panel, { toggleButton, closeButton, onChange = () => {} } = {}) {
   const state = { visible: false }
   panel.hidden = true
+  toggleButton?.setAttribute('aria-expanded', 'false')
+
+  function toggle(visible = !state.visible) {
+    state.visible = visible
+    panel.hidden = !visible
+    toggleButton?.setAttribute('aria-expanded', String(visible))
+    onChange(visible)
+    if (visible) closeButton?.focus({ preventScroll: true })
+    else if (toggleButton && !toggleButton.hidden) toggleButton.focus({ preventScroll: true })
+    return visible
+  }
+
+  toggleButton?.addEventListener('click', () => toggle())
+  closeButton?.addEventListener('click', () => toggle(false))
 
   function handleKeydown(event) {
-    if (!(event.ctrlKey && event.shiftKey && event.code === 'KeyD') || event.repeat) return false
+    const isD = event.code === 'KeyD' || event.key?.toLowerCase() === 'd'
+    if (!(event.ctrlKey && event.shiftKey && isD) || event.altKey || event.repeat) return false
     event.preventDefault()
-    state.visible = !state.visible
-    panel.hidden = !state.visible
+    toggle()
     return true
   }
 
-  return { state, handleKeydown }
+  return { state, toggle, handleKeydown }
 }

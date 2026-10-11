@@ -9,7 +9,6 @@ export const HIT_EFFECT_MS = 320
 export const GOLDEN_HIT_EFFECT_MS = 480
 export const NORMAL_SLASH_HIT_RADIUS = 24
 export const FAST_SLASH_HIT_RADIUS = 40
-export const PREDICTED_SLASH_HIT_RADIUS = 50
 
 export const GOLDEN_TARGET_CHANCE = 0.03
 export const GOLDEN_ELIGIBLE_AFTER_MS = 9000
@@ -18,8 +17,7 @@ const MAX_TARGET_AGE_MS = 5000
 // These CSS-pixel margins affect collision only. Rendering uses the segment's
 // unchanged endpoints, so the visual slash never snaps toward a target.
 export function collisionProfileForSegment(segment) {
-  if (!segment?.activeSlash) return null
-  if (segment.predicted) return { mode: 'PREDICTED', radius: PREDICTED_SLASH_HIT_RADIUS }
+  if (!segment?.activeSlash || segment.predicted) return null
   if (segment.collisionMode === 'FAST') return { mode: 'FAST', radius: FAST_SLASH_HIT_RADIUS }
   return { mode: 'NORMAL', radius: NORMAL_SLASH_HIT_RADIUS }
 }

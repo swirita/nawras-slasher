@@ -144,7 +144,7 @@ test('prediction reconnects only to a consistent reacquired point', () => {
   slash.missing(120)
   const reconnect = slash.detected({ x: 163, y: 100 }, 140, 1000)
   assert.equal(reconnect.bridged, true)
-  assert.equal(reconnect.segment.from.x > 140, true)
+  assert.equal(reconnect.segment.from.x, 140, 'confirmed geometry starts at the last detection')
 
   slash.reset()
   slash.detected({ x: 100, y: 100 }, 0, 1000)
@@ -167,7 +167,7 @@ test('consistent reacquisition after the grace label becomes LOST reconnects saf
   assert.equal(slash.state.tracking, 'LOST')
   const result = slash.detected({ x: 180, y: 100 }, 220, 1000)
   assert.equal(result.bridged, true)
-  assert.equal(result.segment.from.x > 140, true)
+  assert.equal(result.segment.from.x, 140)
   assert.equal(result.segment.to.x, 180)
 })
 
@@ -190,7 +190,8 @@ test('hybrid mode arms from a stable hand despite a noisy fingertip and predicts
   target.x = (predicted.from.x + predicted.to.x) / 2
   target.y = predicted.to.y
   target.radius = 8
-  assert.equal(targets.hitWithSegment(predicted, 86).length, 1)
+  assert.equal(targets.hitWithSegment(predicted, 86).length, 0, 'prediction is visual only')
+  assert.equal(slash.state.segments.some(segment => segment.predicted), false)
   assert.equal(slash.missing(66 + PREDICTION_MAX_MS + 1), null)
   assert.equal(slash.state.slashActive, false)
 })

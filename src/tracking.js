@@ -3,16 +3,20 @@ export const FAST_SMOOTH_ALPHA = 0.82
 const SLOW_SPEED = 0.1 // Screen diagonals/second.
 const FAST_SPEED = 0.9
 const REFERENCE_FRAME_MS = 33
+export const TURN_CONFIRM_MAX_MS = 70
+const MAX_PLAUSIBLE_SPEED = 2.6
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
 const clamp01 = (value) => Math.max(0, Math.min(1, value))
 
 export function createFingerProcessor() {
-  const state = { raw: null, smooth: null, path: null, rawSpeed: 0, rejected: 0, pending: null }
+  const state = { raw: null, smooth: null, path: null, rawSpeed: 0, rejected: 0,
+    held: 0, accepted: 0, estimated: 0, pending: null }
   const history = []
   const pathHistory = []
 
   function accept(point, now, diagonal) {
+    state.accepted++
     const previous = history.at(-1)
     const dt = previous ? Math.max(1, now - previous.at) : REFERENCE_FRAME_MS
     const speed = previous ? (distance(point, previous.point) / diagonal) / (dt / 1000) : 0
@@ -54,7 +58,7 @@ export function createFingerProcessor() {
     const dt = now - last.at
     if (dt <= 0 || dt > 150) return false
     const incomingSpeed = (distance(point, last.point) / diagonal) / (dt / 1000)
-    if (incomingSpeed > 2.6) return true
+    if (incomingSpeed > MAX_PLAUSIBLE_SPEED) return true
     if (!before || incomingSpeed < 0.45) return false
 
     const previousDt = last.at - before.at
@@ -79,16 +83,41 @@ export function createFingerProcessor() {
     if (state.pending) {
       const pending = state.pending
       state.pending = null
-      if (distance(point, pending.point) <= Math.max(30, diagonal * 0.02)) {
-        // Two consistent samples confirm a real direction change.
-        accepted.push(accept(pending.point, pending.at, diagonal))
-      } else {
-        state.rejected += 1
+      const last = history.at(-1)
+      const dt = now - pending.at
+      const incomingDt = pending.at - last.at
+      const incoming = distance(pending.point, last.point) * 1000 / (diagonal * incomingDt)
+      const onward = distance(point, pending.point) * 1000 / (diagonal * dt)
+      const forward = (pending.point.x - last.point.x) * (point.x - pending.point.x)
+        + (pending.point.y - last.point.y) * (point.y - pending.point.y) >= 0
+      // Confirm motion, not proximity to a frozen point. Returning to the old
+      // trajectory rejects an isolated spike; a continuing turn resolves in one frame.
+      if (dt > 0 && dt <= TURN_CONFIRM_MAX_MS && onward <= MAX_PLAUSIBLE_SPEED
+        && forward && suspicious(point, now, diagonal)) {
+        if (incoming <= MAX_PLAUSIBLE_SPEED) {
+          pathHistory.length = 0 // Do not fit a new turn to the old straight line.
+          accepted.push(accept(pending.point, pending.at, diagonal))
+          accepted.push(accept(point, now, diagonal))
+        } else {
+          // Consistent relocation: seed at the new position without a hit bridge.
+          state.rejected++
+          history.length = pathHistory.length = 0
+          accepted.push({ ...accept(point, now, diagonal), reseed: true })
+        }
+        return accepted
+      }
+      state.rejected++
+      if (suspicious(point, now, diagonal)
+        && distance(point, last.point) * 1000 / (diagonal * (now - last.at)) <= MAX_PLAUSIBLE_SPEED) {
+        // An unconfirmed direction change gets a new seed, not another hold.
+        history.length = pathHistory.length = 0
+        return [{ ...accept(point, now, diagonal), reseed: true }]
       }
     }
 
     if (suspicious(point, now, diagonal)) {
       state.pending = { point: { ...point }, at: now }
+      state.held++
     } else {
       accepted.push(accept(point, now, diagonal))
     }
@@ -100,6 +129,7 @@ export function createFingerProcessor() {
     // already checked for a fingertip outlier; keep the slash moving through it.
     if (state.pending) state.rejected += 1
     state.pending = null
+    state.estimated++
     return [accept(point, now, diagonal)]
   }
 
@@ -111,6 +141,7 @@ export function createFingerProcessor() {
     state.path = null
     state.rawSpeed = 0
     state.rejected = 0
+    state.held = state.accepted = state.estimated = 0
     state.pending = null
   }
 

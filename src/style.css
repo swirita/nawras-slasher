@@ -1,8 +1,5 @@
 :root {
-  --camera-opacity: 0.28;
-  --camera-blur: 8px;
-  --camera-brightness: 1.35;
-  --camera-contrast: 0.55;
+  --camera-opacity: 0.22;
   --ui-shadow: 0 4px 12px rgb(20 70 90 / 10%), 0 0 12px rgb(15 160 195 / 16%);
   --button-shadow: 0 5px 14px rgb(20 70 90 / 12%), 0 0 14px rgb(15 155 195 / 20%);
   --button-hover-shadow: 0 6px 14px rgb(20 70 90 / 12%), 0 0 14px rgb(15 155 195 / 26%);
@@ -45,7 +42,7 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
   display: block;
   object-fit: cover;
   transform: scaleX(-1);
-  filter: blur(var(--camera-blur)) brightness(var(--camera-brightness)) contrast(var(--camera-contrast));
+  filter: none;
   opacity: 0;
 }
 .camera-stage.is-active video { opacity: var(--camera-opacity); }
@@ -54,7 +51,7 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
 .camera-tint {
   z-index: 1;
   pointer-events: none;
-  background: linear-gradient(125deg, rgb(255 255 255 / 42%), rgb(230 244 253 / 28%) 55%, rgb(215 236 250 / 35%));
+  background: linear-gradient(125deg, rgb(255 255 255 / 42%), rgb(230 244 253 / 28%) 55%, rgb(215 236 250 / 35%)), rgb(234 244 251 / 15%);
 }
 .camera-grid {
   z-index: 2;
@@ -244,11 +241,11 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
 
 .debug-panel {
   position: fixed;
-  z-index: 11;
-  top: 94px;
-  right: clamp(20px, 4vw, 56px);
+  z-index: 32;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
   width: min(280px, calc(100vw - 40px));
-  max-height: calc(100dvh - 185px);
+  max-height: calc(100dvh - 88px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   overflow: auto;
   padding: 16px;
   border: 1px solid rgb(225 244 255 / 24%);
@@ -258,6 +255,27 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
   backdrop-filter: blur(14px);
   font-size: 0.79rem;
 }
+.debug-toggle {
+  position: fixed; z-index: 33;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  padding: 8px 12px; border: 1px solid #8ab5c8; border-radius: 8px;
+  color: #174f69; background: #eaf4fb; box-shadow: var(--ui-shadow);
+  font-size: 0.75rem; font-weight: 700; cursor: pointer;
+}
+.debug-toggle[aria-expanded="true"] { color: #fff; background: #174f69; }
+.debug-panel .debug-header {
+  position: sticky; top: -16px; z-index: 1; align-items: center;
+  margin: -16px -16px 12px; padding: 12px 16px; background: #0b2639;
+  border-bottom: 1px solid rgb(225 244 255 / 24%);
+}
+.debug-header h2 { margin: 0; color: #9fdae9; font-size: 0.85rem; }
+.debug-header button { padding: 6px 9px; border: 1px solid #7392a5;
+  color: #fff; background: #153449; font-size: 0.75rem; cursor: pointer; }
+.app[data-phase="PLAYING"].cursor-idle .debug-panel,
+.app[data-phase="PLAYING"].cursor-idle .debug-panel * { cursor: auto !important; }
+.app[data-phase="PLAYING"].cursor-idle .debug-toggle,
+.app[data-phase="PLAYING"].cursor-idle .debug-panel button { cursor: pointer !important; }
 .camera-error { position: fixed; z-index: 15; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 22px; text-align: center;
   background: rgb(225 241 249 / 91%); color: #123149; }
@@ -266,17 +284,10 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
 .camera-error button { min-height: 50px; padding: 12px 28px; border: 1px solid #dbac45;
   border-radius: 10px; font-weight: 800; cursor: pointer; }
 .debug-panel div { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; color: #bdd0dd; }
-.debug-panel h3 { margin: 4px 0 10px; color: #9fdae9; font-size: 0.7rem;
-  letter-spacing: 0.13em; }
-.debug-panel h3:not(:first-child) { margin-top: 16px; border-top: 1px solid rgb(170 220 238 / 18%);
-  padding-top: 12px; }
 .debug-panel strong { color: #fff; text-align: right; font-variant-numeric: tabular-nums; }
-.debug-panel .bridge-indicator { display: block; color: #ffe6a4; }
+
 .debug-spawn { width: 100%; margin-top: 10px; font-size: 0.8rem; }
-.debug-target-label { display: block; margin-top: 12px; color: #bdd0dd; font-size: 0.75rem; }
-.debug-target-select { width: 100%; margin-top: 5px; padding: 8px; border: 1px solid #7392a5;
-  border-radius: 7px; color: #fff; background: #153449; font: inherit; }
-.debug-key { margin: 9px 0 0; color: #b8d0df; font-size: 0.69rem; line-height: 1.4; }
+
 .combo-indicator,
 .state-callout {
   position: fixed;
@@ -470,7 +481,6 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
   .status { color: #315b72; font-size: 0.74rem; text-shadow: 0 1px 1px #fff; }
   .status.error { color: #a63428; }
   .combo-indicator { top: 143px; }
-  .debug-panel { top: 138px; right: 16px; }
   .controls { gap: 5px; padding: 6px; }
   .controls button { padding: 9px 11px; font-size: 0.82rem; }
   .ready-brand { padding: 110px 12px 95px; gap: 4px; }
@@ -514,3 +524,6 @@ button:disabled { opacity: 0.42; cursor: default; box-shadow: none !important; }
   .leaderboard li { font-size: 0.78rem; }
   .leaderboard-you { padding: 2px 3px; }
 }
+
+.debug-session-controls { margin-top: 12px; color: #bdd0dd; }
+.debug-session-controls summary { cursor: pointer; }

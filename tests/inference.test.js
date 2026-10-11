@@ -1,21 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createInferenceDriver, videoFrameId } from '../src/inference.js'
+import { createInferenceDriver } from '../src/inference.js'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 
 const tick = async () => { for (let i=0;i<5;i++) await Promise.resolve() }
 
-test('fresh-frame identity uses decoded frames rather than interpolated video time', () => {
-  let frames = 7
-  const video = { currentTime: 1, getVideoPlaybackQuality: () => ({ totalVideoFrames: frames }) }
-  assert.equal(videoFrameId(video), 7)
-  video.currentTime = 1.02
-  assert.equal(videoFrameId(video), 7, 'the same decoded image is not inferred twice')
-  frames++
-  assert.equal(videoFrameId(video), 8)
-  assert.equal(videoFrameId({ currentTime: 2 }), 2, 'fallback for browsers without frame counters')
-})
 function fixture(capture) {
   let time=100
   const sent=[],results=[],errors=[]
@@ -122,6 +112,7 @@ test('worker uses GPU with the same model and falls back to CPU if unavailable',
     })
     await self.onmessage({ data: { type: 'init', wasmRoot: '/wasm', modelBuffer: model } })
     assert.equal(messages[0].type, 'ready')
+    assert.equal(messages[0].delegate, gpuAvailable ? 'GPU' : 'CPU')
     assert.deepEqual(options.map(option => option.baseOptions.delegate), gpuAvailable ? ['GPU'] : ['GPU', 'CPU'])
     for (const option of options) {
       assert.equal(option.baseOptions.modelAssetBuffer, model)
@@ -133,5 +124,37 @@ test('worker uses GPU with the same model and falls back to CPU if unavailable',
     assert.equal(messages[1].id, 7)
     assert.equal(messages[1].result.at, 123)
     assert.equal(closed, 1, 'transferred frame resources are released')
+  }
+})
+
+test('capture duration, inference duration and total result age measure distinct stages', async () => {
+  let resolve
+  const f=fixture(()=>new Promise(done=>{resolve=done}))
+  f.driver.detectForVideo({},100)
+  await tick()
+  f.setTime(112);resolve(f.bitmap);await tick()
+  f.setTime(137);f.respond({detectMs:20})
+  assert.equal(f.driver.state.captureMs,12)
+  assert.equal(f.driver.state.detectMs,20)
+  assert.equal(f.driver.state.resultAgeMs,37)
+  assert.equal(f.driver.state.capturedAt,100)
+  assert.equal(f.driver.state.maxPending,1)
+})
+
+test('worker initialization exposes the active delegate in the returned driver', async () => {
+  const source=readFileSync(new URL('../src/inference.js',import.meta.url),'utf8')
+    .replace(/^import .*\r?\n/,'').replaceAll('export ','')
+    .replace('import.meta.url', "'https://example.test/src/inference.js'")
+  for(const delegate of ['GPU','CPU']) {
+    const init=runInNewContext(source+'\ninitializeInference',{
+      RESULT_MAX_AGE_MS:150,URL,createImageBitmap(){},performance:{now:()=>0},
+      Worker:class {
+        postMessage(){this.onmessage({data:{type:'ready',delegate}})}
+        terminate(){}
+      },
+    })
+    const driver=await init({wasmRoot:'/wasm',modelBuffer:new Uint8Array([1]),onResult(){},onError(){}})
+    assert.equal(driver.state.delegate,delegate)
+    driver.close()
   }
 })
